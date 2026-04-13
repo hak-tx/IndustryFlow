@@ -32,9 +32,15 @@ final class DictationViewModel {
     }
 
     func startDictation() {
-        guard permissionsService.allPermissionsGranted else {
-            appState.errorMessage = "Please grant all required permissions before dictating."
-            appState.showOnboarding = true
+        // Refresh permission status before checking
+        permissionsService.refreshStatus()
+
+        if !permissionsService.allPermissionsGranted {
+            var missing: [String] = []
+            if !permissionsService.microphoneGranted { missing.append("Microphone") }
+            if !permissionsService.speechRecognitionGranted { missing.append("Speech Recognition") }
+            if !permissionsService.accessibilityGranted { missing.append("Accessibility") }
+            appState.errorMessage = "Missing permissions: \(missing.joined(separator: ", ")). Grant them above or in Settings."
             return
         }
 

@@ -1,11 +1,10 @@
 import SwiftUI
+import AppKit
 
 struct MenuBarPopover: View {
     @Bindable var appState: AppState
-    @Bindable var viewModel: DictationViewModel
+    var viewModel: DictationViewModel
     @Bindable var permissionsService: PermissionsService
-
-    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,6 +12,11 @@ struct MenuBarPopover: View {
             header
 
             Divider()
+
+            // Permission status (always visible until all granted)
+            if !permissionsService.allPermissionsGranted {
+                permissionStatusBar
+            }
 
             // Permission revocation warning
             if let revoked = permissionsService.revokedPermission {
@@ -22,18 +26,14 @@ struct MenuBarPopover: View {
             // Main content
             ScrollView {
                 VStack(spacing: 16) {
-                    // Industry picker
                     IndustryPickerView(selectedProfile: $appState.selectedProfile)
 
-                    // Dictation status / transcript
                     DictationStatusView(appState: appState)
 
-                    // Error display
                     if let error = appState.errorMessage {
                         errorBanner(error)
                     }
 
-                    // Dictation button
                     dictationButton
                 }
                 .padding(16)
@@ -41,15 +41,11 @@ struct MenuBarPopover: View {
 
             Divider()
 
-            // Footer
             footer
         }
         .frame(width: Constants.popoverWidth, height: Constants.popoverHeight)
-        .sheet(isPresented: $showSettings) {
-            SettingsView(appState: appState, permissionsService: permissionsService)
-        }
-        .sheet(isPresented: $appState.showOnboarding) {
-            OnboardingView(permissionsService: permissionsService)
+        .onAppear {
+            permissionsService.refreshStatus()
         }
     }
 
@@ -71,6 +67,63 @@ struct MenuBarPopover: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    // MARK: - Permission Status Bar
+
+    private var permissionStatusBar: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                permissionDot("Mic", granted: permissionsService.microphoneGranted)
+                permissionDot("Speech", granted: permissionsService.speechRecognitionGranted)
+                permissionDot("Accessibility", granted: permissionsService.accessibilityGranted)
+                Spacer()
+                Button("Refresh") {
+                    permissionsService.refreshStatus()
+                }
+                .font(.caption2)
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+            }
+
+            if !permissionsService.microphoneGranted || !permissionsService.speechRecognitionGranted {
+                Button("Grant Microphone & Speech") {
+                    Task {
+                        if !permissionsService.microphoneGranted {
+                            await permissionsService.requestMicrophone()
+                        }
+                        if !permissionsService.speechRecognitionGranted {
+                            await permissionsService.requestSpeechRecognition()
+                        }
+                    }
+                }
+                .font(.caption)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            if !permissionsService.accessibilityGranted {
+                Button("Open Accessibility Settings") {
+                    permissionsService.openAccessibilitySettings()
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.08), in: Rectangle())
+    }
+
+    private func permissionDot(_ label: String, granted: Bool) -> some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(granted ? Color.green : Color.red)
+                .frame(width: 6, height: 6)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(granted ? .secondary : .primary)
+        }
     }
 
     // MARK: - Dictation Button
@@ -114,16 +167,13 @@ struct MenuBarPopover: View {
             }
             Spacer()
             Button("Fix") {
-                if permission == "Accessibility" {
-                    permissionsService.openAccessibilitySettings()
-                }
+                permissionsService.openAccessibilitySettings()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
         }
         .padding(10)
         .background(.red.opacity(0.08), in: Rectangle())
-
     }
 
     // MARK: - Error Banner
@@ -152,7 +202,7 @@ struct MenuBarPopover: View {
     private var footer: some View {
         HStack {
             Button("Settings") {
-                showSettings = true
+                openSettingsWindow()
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -175,5 +225,25 @@ struct MenuBarPopover: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Open Settings as Standalone Window
+
+    private func openSettingsWindow() {
+        let settingsView = SettingsView(
+            appState: appState,
+            permissionsService: permissionsService
+        )
+
+        let hostingController = NSHostingController(rootView: settingsView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "IndustryFlow Settings"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 540, height: 460))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+
+        // Keep window alive
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
