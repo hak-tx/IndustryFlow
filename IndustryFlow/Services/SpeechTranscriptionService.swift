@@ -83,7 +83,11 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         startRecognitionRequest(vocabularyHints: vocabularyHints)
     }
 
+    private var isChaining = false
+
     private func startRecognitionRequest(vocabularyHints: [String]) {
+        isChaining = false
+
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
@@ -156,26 +160,38 @@ final class SpeechTranscriptionService: @unchecked Sendable {
             }
 
             if let error {
-                // The recognizer hit a limit or an actual error
                 let nsError = error as NSError
-                // Error code 1101 = "request limit reached" — this is normal, chain a new one
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1101 {
+
+                // During chaining, the old task is cancelled which triggers an error.
+                // Ignore ALL errors while chaining — the new request is already starting.
+                if self.isChaining {
+                    Logger.transcription.debug("Ignoring error during chain: \(nsError.code)")
+                    return
+                }
+
+                // Error 1101 = request limit reached — chain a new request
+                // Error 216, 209 = task/request cancelled — also chain
+                // Error 1110 = no speech detected timeout — chain (user might resume speaking)
+                let recoverableCodes = [1101, 216, 209, 1110]
+                if recoverableCodes.contains(nsError.code) || nsError.domain == "kAFAssistantErrorDomain" {
                     if self.isRunning {
-                        Logger.transcription.info("Request limit reached, chaining new request")
+                        Logger.transcription.info("Recoverable error (\(nsError.code)), chaining new request")
                         self.chainNewRequest(vocabularyHints: self.recognitionRequest?.contextualStrings ?? [])
                     }
                 } else if self.isRunning {
-                    Logger.transcription.error("Recognition error: \(error.localizedDescription)")
-                    self.continuation?.yield(.error(error.localizedDescription))
-                    self.continuation?.finish()
-                    self.isRunning = false
+                    // Truly fatal error — log it but try to recover anyway
+                    Logger.transcription.error("Recognition error (\(nsError.domain) \(nsError.code)): \(error.localizedDescription)")
+                    // Try to chain rather than giving up
+                    self.chainNewRequest(vocabularyHints: self.recognitionRequest?.contextualStrings ?? [])
                 }
             }
         }
     }
 
     private func chainNewRequest(vocabularyHints: [String]) {
-        // Remove existing tap before installing a new one
+        // Set flag BEFORE cancelling to suppress error callbacks from the dying task
+        isChaining = true
+
         audioEngine.inputNode.removeTap(onBus: 0)
 
         if audioEngine.isRunning {
@@ -187,8 +203,9 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         recognitionRequest = nil
 
         // Short delay to let the system settle, then restart
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.startRecognitionRequest(vocabularyHints: vocabularyHints)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.startRecognitionRequest(vocabularyHints: vocabularyHints)
         }
     }
 
