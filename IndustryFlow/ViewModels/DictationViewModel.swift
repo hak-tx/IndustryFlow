@@ -115,43 +115,28 @@ final class DictationViewModel {
 
     // MARK: - Live Typing
 
-    /// Compares the new transcription text with what we've already typed.
-    /// Types only the genuinely new suffix.
+    /// Types only genuinely NEW characters that extend past what we've already typed.
     ///
-    /// Uses string prefix matching — finds how much of `actuallyTypedText`
-    /// matches the beginning of `newText`, then types only what's after that.
+    /// Dead simple: track the count of characters we've typed. If the recognizer
+    /// sends text longer than that count, type the suffix. If it sends shorter
+    /// text (during revision or chain), ignore it completely.
     ///
-    /// When the recognizer chains (new session after pause), the accumulated
-    /// transcript includes old text + new text. Since `actuallyTypedText`
-    /// already matches the old portion, we only type the new words.
+    /// This means: we ONLY ever type forward. Never overwrite. Never backspace.
+    /// Mid-dictation text might have small inaccuracies from recognizer revisions,
+    /// but Claude fixes everything during polishing. Zero words are lost.
     private func handleTranscriptionUpdate(_ newText: String) {
-        // Find the longest prefix of newText that matches actuallyTypedText
-        // (case-insensitive because the recognizer may change capitalization)
-        let newLower = newText.lowercased()
-        let typedLower = actuallyTypedText.lowercased()
+        let currentCount = actuallyTypedText.count
 
-        // How much of what we typed is still present at the start of the new text?
-        var matchLength = 0
-        let minLen = min(newLower.count, typedLower.count)
+        // ONLY type forward — if recognizer text is shorter or equal, skip entirely.
+        // This prevents overwrites during chain transitions and recognizer revisions.
+        guard newText.count > currentCount else { return }
 
-        for i in 0..<minLen {
-            let newIdx = newLower.index(newLower.startIndex, offsetBy: i)
-            let typedIdx = typedLower.index(typedLower.startIndex, offsetBy: i)
-            if newLower[newIdx] == typedLower[typedIdx] {
-                matchLength = i + 1
-            } else {
-                break
-            }
-        }
-
-        // If the new text extends beyond what we've typed, type the delta
-        guard newText.count > matchLength else { return }
-
-        let deltaStartIndex = newText.index(newText.startIndex, offsetBy: matchLength)
-        let delta = String(newText[deltaStartIndex...])
+        // Extract only the characters past what we've already typed
+        let deltaStart = newText.index(newText.startIndex, offsetBy: currentCount)
+        let delta = String(newText[deltaStart...])
         guard !delta.isEmpty else { return }
 
-        // Update our record BEFORE dispatching the typing
+        // Update our record BEFORE dispatching (prevents race with next partial)
         actuallyTypedText += delta
 
         // Type on background queue (typeText uses usleep for timing)

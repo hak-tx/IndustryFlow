@@ -72,6 +72,9 @@ final class SpeechTranscriptionService: @unchecked Sendable {
 
     // MARK: - Private
 
+    /// Audio buffers captured during the chain gap — replayed into the new request.
+    private var pendingBuffers: [AVAudioPCMBuffer] = []
+
     private func configureAndStartAudio() throws {
         guard let speechRecognizer, speechRecognizer.isAvailable else {
             throw TranscriptionError.recognizerUnavailable
@@ -80,6 +83,7 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         recognitionTask?.cancel()
         recognitionTask = nil
         accumulatedTranscript = ""
+        pendingBuffers = []
         isRunning = true
 
         // Start the audio engine ONCE — it stays running for the entire session
@@ -87,7 +91,14 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
+            guard let self else { return }
+            if let request = self.recognitionRequest {
+                // Normal path: feed audio to the active recognizer
+                request.append(buffer)
+            } else {
+                // Chain gap: buffer the audio so no words are lost
+                self.pendingBuffers.append(buffer)
+            }
         }
 
         audioEngine.prepare()
@@ -121,6 +132,15 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         }
 
         self.recognitionRequest = request
+
+        // Replay any audio buffers captured during the chain gap
+        if !pendingBuffers.isEmpty {
+            Logger.transcription.info("Replaying \(self.pendingBuffers.count) buffered audio frames")
+            for buffer in pendingBuffers {
+                request.append(buffer)
+            }
+            pendingBuffers.removeAll()
+        }
 
         recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
