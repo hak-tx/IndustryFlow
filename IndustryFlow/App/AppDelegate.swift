@@ -146,13 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let viewModel = dictationViewModel else { return }
         Logger.hotkey.info("Double-tap Control triggered")
 
+        // CRITICAL: Do NOT show popover or activate IndustryFlow.
+        // Focus must stay in the target app so text streams at the cursor.
         Task { @MainActor in
             viewModel.toggleDictation()
             updateMenuBarIcon()
-
-            if appState.isDictating {
-                showPopover()
-            }
         }
     }
 

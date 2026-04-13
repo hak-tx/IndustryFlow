@@ -16,6 +16,11 @@ final class DictationViewModel {
     private var capturedElement: AXUIElement?
     private var targetIsElectronApp = false
 
+    // Live insertion tracking
+    private var previouslyInsertedText = ""
+    private var insertionStartPosition = -1
+    private var useAXInsertion = true
+
     init(appState: AppState, permissionsService: PermissionsService) {
         self.appState = appState
         self.permissionsService = permissionsService
@@ -48,8 +53,13 @@ final class DictationViewModel {
         appState.liveTranscript = ""
         appState.polishedText = nil
 
-        // Capture the target app and focused element BEFORE we do anything
-        // that might steal focus
+        // Reset live insertion state
+        previouslyInsertedText = ""
+        insertionStartPosition = -1
+        useAXInsertion = true
+
+        // Capture the target app and focused element BEFORE anything.
+        // Focus must stay in the target app — we never activate IndustryFlow.
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             appState.targetAppPID = frontApp.processIdentifier
             appState.targetAppName = frontApp.localizedName
@@ -57,7 +67,14 @@ final class DictationViewModel {
             capturedElement = accessibilityService.getFocusedElement(forPID: frontApp.processIdentifier)
 
             if targetIsElectronApp {
-                Logger.app.info("Target is Electron app — will use pasteboard insertion")
+                useAXInsertion = false
+                Logger.app.info("Target is Electron app — using backspace+paste for live insertion")
+            }
+
+            // Record the cursor position for AX range-based insertion
+            if useAXInsertion, let element = capturedElement {
+                insertionStartPosition = accessibilityService.getCursorPosition(in: element)
+                Logger.app.info("Captured cursor position: \(self.insertionStartPosition)")
             }
         }
 
@@ -65,9 +82,9 @@ final class DictationViewModel {
         appState.lastSession = session
         appState.isDictating = true
 
-        Logger.app.info("Starting dictation with profile: \(self.appState.selectedProfile.name)")
+        Logger.app.info("Starting dictation — profile: \(self.appState.selectedProfile.name), format: \(self.appState.selectedFormat.name)")
 
-        // Start transcription stream with combined vocabulary hints
+        // Start transcription with combined vocabulary hints
         // (industry profile terms + custom company glossary terms)
         let hints = appState.allVocabularyHints
         let stream = transcriptionService.startTranscription(vocabularyHints: hints)
@@ -78,12 +95,19 @@ final class DictationViewModel {
 
                 switch update {
                 case .partial(let text):
+                    // Update app state (for popover display if user opens it)
                     self.appState.liveTranscript = text
                     self.appState.lastSession?.rawTranscript = text
+
+                    // PRIMARY: Stream text live into the target app
+                    self.liveInsertPartialResult(text)
 
                 case .final_(let text):
                     self.appState.liveTranscript = text
                     self.appState.lastSession?.rawTranscript = text
+
+                    // Insert the finalized segment
+                    self.liveInsertPartialResult(text)
 
                 case .error(let message):
                     Logger.app.error("Transcription error: \(message)")
@@ -105,51 +129,92 @@ final class DictationViewModel {
         appState.isDictating = false
         appState.lastSession?.status = .processing
 
-        let rawText = appState.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawText = previouslyInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawText.isEmpty else {
             Logger.app.info("No text was transcribed")
             appState.lastSession?.status = .completed
             return
         }
 
-        // Insert the raw transcript into the target app immediately
-        insertTextIntoTargetApp(rawText)
-
-        // Then polish it
+        // Raw text is already in the target app (inserted live during dictation).
+        // Now polish it and replace.
         polishTranscript(rawText)
     }
 
-    // MARK: - Text Insertion
+    // MARK: - Live Text Insertion
 
-    private func insertTextIntoTargetApp(_ text: String) {
+    /// Inserts or updates partial transcription results in the target app in real-time.
+    /// Called on every `.partial` and `.final_` update from the speech recognizer.
+    ///
+    /// Strategy for AX-compatible apps (most native apps):
+    ///   - First partial: insert at cursor, record the start position
+    ///   - Subsequent partials: replace the range [start..start+prevLength] with new text
+    ///
+    /// Strategy for Electron apps (no AX):
+    ///   - Simulate backspaces to delete previous text, then paste new text
+    private func liveInsertPartialResult(_ newText: String) {
         guard let pid = appState.targetAppPID else { return }
 
-        // Activate the target app first
-        if let app = NSRunningApplication(processIdentifier: pid) {
-            app.activate()
+        if useAXInsertion {
+            liveInsertViaAX(newText, pid: pid)
+        } else {
+            liveInsertViaBackspaceAndPaste(newText)
+        }
+    }
+
+    /// AX-based live insertion: directly manipulate the text field's value.
+    /// This is instant, invisible, and doesn't disrupt the user.
+    private func liveInsertViaAX(_ newText: String, pid: pid_t) {
+        let element = capturedElement
+            ?? accessibilityService.getFocusedElement(forPID: pid)
+
+        guard let element else {
+            Logger.app.warning("Lost focused element during live insertion")
+            return
         }
 
-        // Small delay for focus to settle
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self else { return }
-            let element = self.capturedElement
-                ?? self.accessibilityService.getFocusedElement(forPID: pid)
-
-            if let element {
-                let success = self.accessibilityService.insertText(
-                    text,
-                    into: element,
-                    targetPID: pid
-                )
-                if success {
-                    Logger.app.info("Text inserted into target app")
-                }
-            } else {
-                // No focused element — use pasteboard insertion directly
-                Logger.app.info("No focused element — inserting via pasteboard")
-                _ = self.accessibilityService.insertViaPasteboard(text)
+        if previouslyInsertedText.isEmpty && insertionStartPosition >= 0 {
+            // First insertion: insert at the captured cursor position
+            let result = accessibilityService.replaceRange(
+                in: element,
+                start: insertionStartPosition,
+                length: 0,
+                with: newText
+            )
+            if result >= 0 {
+                previouslyInsertedText = newText
             }
+        } else if insertionStartPosition >= 0 {
+            // Subsequent insertions: replace the range we previously inserted
+            let result = accessibilityService.replaceRange(
+                in: element,
+                start: insertionStartPosition,
+                length: previouslyInsertedText.count,
+                with: newText
+            )
+            if result >= 0 {
+                previouslyInsertedText = newText
+            }
+        } else {
+            // Fallback: couldn't get cursor position, switch to backspace method
+            Logger.app.info("No cursor position — falling back to backspace insertion")
+            useAXInsertion = false
+            liveInsertViaBackspaceAndPaste(newText)
         }
+    }
+
+    /// Electron/fallback live insertion: delete previous text with backspaces, paste new text.
+    /// Visually noisier than AX but works universally.
+    private func liveInsertViaBackspaceAndPaste(_ newText: String) {
+        // Delete what we previously inserted
+        if !previouslyInsertedText.isEmpty {
+            accessibilityService.simulateBackspaces(count: previouslyInsertedText.count)
+            usleep(10_000) // 10ms for backspaces to register
+        }
+
+        // Paste the new text
+        _ = accessibilityService.insertViaPasteboard(newText)
+        previouslyInsertedText = newText
     }
 
     // MARK: - AI Polishing
@@ -195,34 +260,44 @@ final class DictationViewModel {
     private func replaceWithPolishedText(original: String, polished: String) {
         guard let pid = appState.targetAppPID else { return }
 
-        // Activate the target app
-        if let app = NSRunningApplication(processIdentifier: pid) {
-            app.activate()
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self else { return }
-            let element = self.capturedElement
-                ?? self.accessibilityService.getFocusedElement(forPID: pid)
+        if useAXInsertion, insertionStartPosition >= 0 {
+            // Use AX range replacement — swap the raw text with polished in-place
+            let element = capturedElement
+                ?? accessibilityService.getFocusedElement(forPID: pid)
 
             if let element {
-                let success = self.accessibilityService.replaceText(
-                    original: original,
-                    replacement: polished,
+                let result = accessibilityService.replaceRange(
                     in: element,
-                    targetPID: pid
+                    start: insertionStartPosition,
+                    length: original.count,
+                    with: polished
                 )
-                if success {
-                    Logger.app.info("Replaced raw text with polished version")
-                } else {
-                    // AX replacement failed (Electron app, or user moved cursor).
-                    // Copy polished text to clipboard so user can paste it manually.
-                    Logger.app.info("AX replacement failed — polished text copied to clipboard")
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(polished, forType: .string)
-                    self.appState.errorMessage = "Polished text copied to clipboard. Press Cmd+V to replace your dictation."
+                if result >= 0 {
+                    Logger.app.info("Replaced raw text with polished version via AX")
+                    previouslyInsertedText = polished
+                    return
                 }
             }
         }
+
+        // Fallback: try string-based AX replacement
+        if let element = capturedElement ?? accessibilityService.getFocusedElement(forPID: pid) {
+            let success = accessibilityService.replaceText(
+                original: original,
+                replacement: polished,
+                in: element,
+                targetPID: pid
+            )
+            if success {
+                Logger.app.info("Replaced raw text with polished version")
+                return
+            }
+        }
+
+        // Final fallback: copy polished text to clipboard
+        Logger.app.info("AX replacement failed — polished text copied to clipboard")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(polished, forType: .string)
+        appState.errorMessage = "Polished text copied to clipboard. Press Cmd+V to replace."
     }
 }

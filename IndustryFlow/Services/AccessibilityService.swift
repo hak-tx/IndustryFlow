@@ -165,6 +165,84 @@ final class AccessibilityService {
         return replaceViaAccessibility(original: original, replacement: replacement, in: element)
     }
 
+    // MARK: - Live Streaming: Range-Based Replace
+
+    /// Replaces a specific character range in the target element.
+    /// Used for live dictation: as partial results come in, we replace the
+    /// previously inserted range with the new full text.
+    ///
+    /// Returns the length of text now occupying the range, or -1 on failure.
+    func replaceRange(in element: AXUIElement, start: Int, length: Int, with newText: String) -> Int {
+        var currentValue: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &currentValue)
+
+        guard result == .success, let currentText = currentValue as? String else {
+            return -1
+        }
+
+        let nsText = currentText as NSString
+        let safeStart = min(start, nsText.length)
+        let safeLength = min(length, nsText.length - safeStart)
+
+        let replaced = nsText.replacingCharacters(
+            in: NSRange(location: safeStart, length: safeLength),
+            with: newText
+        )
+
+        let setResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, replaced as CFTypeRef)
+        guard setResult == .success else {
+            return -1
+        }
+
+        // Move cursor to end of the new text
+        let newEnd = safeStart + newText.count
+        var newRange = CFRange(location: newEnd, length: 0)
+        if let rangeValue = AXValueCreate(.cfRange, &newRange) {
+            AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
+        }
+
+        return newText.count
+    }
+
+    /// Gets the current cursor position (location of selected text range) in the element.
+    /// Returns -1 if it can't be read.
+    func getCursorPosition(in element: AXUIElement) -> Int {
+        var selectedRange: AnyObject?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRange
+        )
+
+        guard result == .success else { return -1 }
+
+        var range = CFRange(location: 0, length: 0)
+        if let axValue = selectedRange {
+            AXValueGetValue(axValue as! AXValue, .cfRange, &range)
+        }
+        return range.location
+    }
+
+    // MARK: - Backspace Simulation (Electron Fallback)
+
+    /// Simulates pressing the Delete (backspace) key N times.
+    /// Used for Electron apps where AX range manipulation isn't available.
+    func simulateBackspaces(count: Int) {
+        guard count > 0 else { return }
+
+        let source = CGEventSource(stateID: .combinedSessionState)
+
+        for _ in 0..<count {
+            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: false) else {
+                continue
+            }
+            keyDown.post(tap: .cgSessionEventTap)
+            keyUp.post(tap: .cgSessionEventTap)
+            usleep(2_000) // 2ms between keystrokes
+        }
+    }
+
     // MARK: - Strategy A: Direct Accessibility API
 
     private func insertViaAccessibility(_ text: String, into element: AXUIElement) -> Bool {
