@@ -161,11 +161,11 @@ final class SpeechTranscriptionService: @unchecked Sendable {
                     self.accumulatedTranscript += text
                     self.continuation?.yield(.final_(self.accumulatedTranscript))
 
-                    // Only chain for server-based recognition (has 1-min limit).
-                    // On-device: do NOT chain. The recognizer will start a new
-                    // utterance automatically within the same task.
-                    if self.isRunning && !self.isOnDevice {
-                        Logger.transcription.info("Server mode: chaining new request after final")
+                    // ALWAYS chain after a final result. The recognition task is
+                    // DONE after isFinal — it will never send another callback.
+                    // This is true for BOTH on-device and server modes.
+                    // The debounce+diff typing strategy handles chaining safely.
+                    if self.isRunning {
                         self.chainNewRequest()
                     }
                 } else {
