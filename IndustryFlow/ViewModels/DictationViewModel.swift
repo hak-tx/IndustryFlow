@@ -129,21 +129,23 @@ final class DictationViewModel {
     /// Types ONLY new characters beyond what we've already typed.
     /// Never backspaces — only moves forward.
     ///
-    /// We track by character count, not by prefix matching. Apple's recognizer
-    /// frequently revises earlier text (capitalization, punctuation, word corrections)
-    /// which would break a hasPrefix check. We don't care about revisions to
-    /// already-typed text — Claude fixes everything when polishing.
+    /// IMPORTANT: Typing is dispatched off the main actor so it doesn't
+    /// block the transcription stream from delivering the next update.
     private func handlePartialResult(_ newText: String) {
         guard newText.count > typedCharacterCount else { return }
 
-        // Type everything past what we've already output
         let delta = String(newText.suffix(newText.count - typedCharacterCount))
         guard !delta.isEmpty else { return }
 
-        accessibilityService.typeText(delta)
-
+        let service = accessibilityService
         typedCharacterCount += delta.count
         highWaterText = newText
+
+        // Type on a background queue so we don't block the main thread
+        // (typeText uses usleep for inter-character timing)
+        DispatchQueue.global(qos: .userInteractive).async {
+            service.typeText(delta)
+        }
     }
 
     // MARK: - Polish and Replace
