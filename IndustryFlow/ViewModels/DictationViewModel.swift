@@ -14,6 +14,7 @@ final class DictationViewModel {
 
     private var transcriptionTask: Task<Void, Never>?
     private var capturedElement: AXUIElement?
+    private var targetIsElectronApp = false
 
     init(appState: AppState, permissionsService: PermissionsService) {
         self.appState = appState
@@ -46,7 +47,12 @@ final class DictationViewModel {
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             appState.targetAppPID = frontApp.processIdentifier
             appState.targetAppName = frontApp.localizedName
+            targetIsElectronApp = AccessibilityService.isElectronApp(frontApp)
             capturedElement = accessibilityService.getFocusedElement(forPID: frontApp.processIdentifier)
+
+            if targetIsElectronApp {
+                Logger.app.info("Target is Electron app — will use pasteboard insertion")
+            }
         }
 
         let session = TranscriptionSession(profile: appState.selectedProfile)
@@ -109,33 +115,32 @@ final class DictationViewModel {
     // MARK: - Text Insertion
 
     private func insertTextIntoTargetApp(_ text: String) {
-        // Re-acquire the focused element in the target app
-        if let pid = appState.targetAppPID {
-            // Activate the target app first
-            if let app = NSRunningApplication(processIdentifier: pid) {
-                app.activate()
-            }
+        guard let pid = appState.targetAppPID else { return }
 
-            // Small delay for focus to settle
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self else { return }
-                let element = self.capturedElement
-                    ?? self.accessibilityService.getFocusedElement(forPID: pid)
+        // Activate the target app first
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            app.activate()
+        }
 
-                if let element {
-                    let success = self.accessibilityService.insertText(text, into: element)
-                    if success {
-                        Logger.app.info("Text inserted into target app")
-                    } else {
-                        Logger.app.warning("Failed to insert text via accessibility, trying pasteboard")
-                    }
-                } else {
-                    Logger.app.warning("No focused element found, text available in clipboard")
-                    // As final fallback, put it on the pasteboard
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                    self.appState.errorMessage = "Could not find cursor. Text copied to clipboard — press Cmd+V to paste."
+        // Small delay for focus to settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            let element = self.capturedElement
+                ?? self.accessibilityService.getFocusedElement(forPID: pid)
+
+            if let element {
+                let success = self.accessibilityService.insertText(
+                    text,
+                    into: element,
+                    targetPID: pid
+                )
+                if success {
+                    Logger.app.info("Text inserted into target app")
                 }
+            } else {
+                // No focused element — use pasteboard insertion directly
+                Logger.app.info("No focused element — inserting via pasteboard")
+                _ = self.accessibilityService.insertViaPasteboard(text)
             }
         }
     }
@@ -195,10 +200,18 @@ final class DictationViewModel {
                 let success = self.accessibilityService.replaceText(
                     original: original,
                     replacement: polished,
-                    in: element
+                    in: element,
+                    targetPID: pid
                 )
                 if success {
                     Logger.app.info("Replaced raw text with polished version")
+                } else {
+                    // AX replacement failed (Electron app, or user moved cursor).
+                    // Copy polished text to clipboard so user can paste it manually.
+                    Logger.app.info("AX replacement failed — polished text copied to clipboard")
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(polished, forType: .string)
+                    self.appState.errorMessage = "Polished text copied to clipboard. Press Cmd+V to replace your dictation."
                 }
             }
         }

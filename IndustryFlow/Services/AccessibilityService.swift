@@ -5,6 +5,34 @@ import os
 
 final class AccessibilityService {
 
+    /// Known Electron app bundle ID prefixes. Electron apps report incorrect
+    /// cursor positions ({location=0, length=0}) via Accessibility APIs, so
+    /// we skip AX text insertion and go straight to pasteboard for these.
+    /// Source: electron/electron#36337
+    private static let electronBundlePrefixes: Set<String> = [
+        "com.microsoft.VSCode",
+        "com.visualstudio.code",
+        "com.todesktop.",
+        "com.slack.",
+        "com.discord",
+        "com.spotify.",
+        "com.figma.",
+        "com.notion.",
+        "com.linear.",
+        "com.1password.",
+        "com.obsidian.",
+        "com.lencx.chatgpt",
+        "dev.zed.",
+        "com.cursor.",
+        "com.github.GitHubClient",
+    ]
+
+    /// Known Electron app name substrings (fallback check when bundle ID isn't matched).
+    private static let electronAppNames: Set<String> = [
+        "Electron", "Code", "Cursor", "Slack", "Discord", "Notion",
+        "Figma", "Spotify", "Obsidian", "Linear", "1Password",
+    ]
+
     // MARK: - Permission Checking
 
     static func isAccessibilityEnabled() -> Bool {
@@ -14,6 +42,38 @@ final class AccessibilityService {
     static func requestAccessibilityPermission() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+    }
+
+    // MARK: - App Detection
+
+    /// Returns true if the given app is an Electron-based application.
+    /// Electron apps have broken AX text cursor reporting, so we must use
+    /// pasteboard insertion exclusively for them.
+    static func isElectronApp(_ app: NSRunningApplication) -> Bool {
+        if let bundleID = app.bundleIdentifier {
+            for prefix in electronBundlePrefixes {
+                if bundleID.hasPrefix(prefix) {
+                    return true
+                }
+            }
+        }
+
+        // Fallback: check the executable path for "Electron" framework
+        if let url = app.executableURL {
+            let path = url.path
+            if path.contains("Electron") || path.contains("electron") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func isElectronApp(pid: pid_t) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            return false
+        }
+        return isElectronApp(app)
     }
 
     // MARK: - Focused Element Discovery
@@ -59,31 +119,50 @@ final class AccessibilityService {
         return (focusedElement as! AXUIElement)
     }
 
-    // MARK: - Text Insertion (Strategy A: Direct AX Manipulation)
+    // MARK: - Text Insertion
 
     /// Inserts text at the current cursor position in the focused element.
-    func insertText(_ text: String, into element: AXUIElement) -> Bool {
+    ///
+    /// Strategy order:
+    /// 1. If the target app is Electron-based, skip straight to pasteboard (AX is broken).
+    /// 2. Try direct AX value manipulation (cleanest, supports undo).
+    /// 3. Fall back to pasteboard + simulated Cmd+V (universal).
+    func insertText(_ text: String, into element: AXUIElement, targetPID: pid_t? = nil) -> Bool {
+        // Skip AX for Electron apps — their cursor reporting is broken
+        if let pid = targetPID, AccessibilityService.isElectronApp(pid: pid) {
+            Logger.accessibility.info("Electron app detected — using pasteboard insertion directly")
+            return insertViaPasteboard(text)
+        }
+
         // Try direct AX value manipulation first
         if insertViaAccessibility(text, into: element) {
             return true
         }
 
         // Fall back to pasteboard-based insertion
-        Logger.accessibility.info("Falling back to pasteboard insertion")
+        Logger.accessibility.info("AX insertion failed — falling back to pasteboard")
         return insertViaPasteboard(text)
     }
 
     /// Replaces existing text with new text in the focused element.
     /// Used after polishing to swap raw transcript with polished version.
-    func replaceText(original: String, replacement: String, in element: AXUIElement) -> Bool {
-        // Try to find and select the original text, then replace it
-        if replaceViaAccessibility(original: original, replacement: replacement, in: element) {
-            return true
+    ///
+    /// Only attempts replacement via Accessibility API (direct string manipulation).
+    /// Does NOT attempt pasteboard-based replacement — research from production apps
+    /// (Wispr Flow, Pindrop, open-wispr) shows that selecting text via simulated
+    /// keystrokes (Shift+Arrow) is fatally fragile and breaks when: the user clicked
+    /// elsewhere, the app scrolled, there's input lag, or text wrapping changed.
+    ///
+    /// If AX replacement fails, returns false and the caller can decide what to do
+    /// (e.g., copy polished text to clipboard and notify the user).
+    func replaceText(original: String, replacement: String, in element: AXUIElement, targetPID: pid_t? = nil) -> Bool {
+        // Skip for Electron apps
+        if let pid = targetPID, AccessibilityService.isElectronApp(pid: pid) {
+            Logger.accessibility.info("Electron app — AX replacement not possible, skipping")
+            return false
         }
 
-        // Fallback: select all text we inserted and paste the replacement
-        Logger.accessibility.info("Falling back to pasteboard replacement")
-        return replaceViaPasteboard(original: original, replacement: replacement)
+        return replaceViaAccessibility(original: original, replacement: replacement, in: element)
     }
 
     // MARK: - Strategy A: Direct Accessibility API
@@ -104,7 +183,7 @@ final class AccessibilityService {
         guard valueResult == .success,
               rangeResult == .success,
               let currentText = currentValue as? String else {
-            Logger.accessibility.debug("Cannot read AX value/range, element may not support direct manipulation")
+            Logger.accessibility.debug("Cannot read AX value/range — element may not support direct manipulation")
             return false
         }
 
@@ -112,6 +191,25 @@ final class AccessibilityService {
         var range = CFRange(location: 0, length: 0)
         if let axValue = selectedRange {
             AXValueGetValue(axValue as! AXValue, .cfRange, &range)
+        }
+
+        // Validate range — Electron apps report {0, 0} even when cursor is elsewhere.
+        // If the text field has content but cursor reports position 0 with no selection,
+        // this is likely a broken AX implementation. Fall back to pasteboard.
+        if !currentText.isEmpty && range.location == 0 && range.length == 0 {
+            // Double-check: try setting the range to see if the element actually supports it
+            var testRange = CFRange(location: 0, length: 0)
+            if let testValue = AXValueCreate(.cfRange, &testRange) {
+                let testResult = AXUIElementSetAttributeValue(
+                    element,
+                    kAXSelectedTextRangeAttribute as CFString,
+                    testValue
+                )
+                if testResult != .success {
+                    Logger.accessibility.debug("AX range is read-only — likely broken implementation")
+                    return false
+                }
+            }
         }
 
         // Build new text with insertion at cursor position
@@ -126,6 +224,14 @@ final class AccessibilityService {
         let setResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef)
         guard setResult == .success else {
             Logger.accessibility.debug("Failed to set AX value: \(setResult.rawValue)")
+            return false
+        }
+
+        // Verify the value was actually set (some apps return success but don't apply)
+        var verifyValue: AnyObject?
+        AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &verifyValue)
+        if let verifyText = verifyValue as? String, verifyText != newText {
+            Logger.accessibility.debug("AX value set returned success but text did not change")
             return false
         }
 
@@ -148,7 +254,7 @@ final class AccessibilityService {
             return false
         }
 
-        // Find the original text within the current value
+        // Find the original text within the current value (search from end, since we just appended it)
         guard let range = currentText.range(of: original, options: .backwards) else {
             Logger.accessibility.warning("Could not find original text to replace")
             return false
@@ -158,6 +264,14 @@ final class AccessibilityService {
         let setResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newText as CFTypeRef)
 
         guard setResult == .success else {
+            return false
+        }
+
+        // Verify replacement took effect
+        var verifyValue: AnyObject?
+        AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &verifyValue)
+        if let verifyText = verifyValue as? String, !verifyText.contains(replacement) {
+            Logger.accessibility.debug("AX replacement returned success but text did not change")
             return false
         }
 
@@ -173,62 +287,77 @@ final class AccessibilityService {
         return true
     }
 
-    // MARK: - Strategy B: Pasteboard Fallback
+    // MARK: - Strategy B: Pasteboard + Cmd+V (Universal Fallback)
 
-    private func insertViaPasteboard(_ text: String) -> Bool {
+    /// Inserts text via the system pasteboard and a simulated Cmd+V keystroke.
+    ///
+    /// This is the same approach used by Wispr Flow, JustDictate, and others.
+    /// Steps (from node-insert-text):
+    /// 1. Save current clipboard contents
+    /// 2. Clear clipboard and write our text
+    /// 3. Simulate Cmd+V
+    /// 4. Restore original clipboard after 500ms
+    ///
+    /// 500ms restore delay matches Wispr Flow. Shorter values (300ms) cause
+    /// clipboard races where the paste hasn't completed before restore.
+    func insertViaPasteboard(_ text: String) -> Bool {
         let pasteboard = NSPasteboard.general
-        let previousContents = pasteboard.string(forType: .string)
+
+        // Save ALL pasteboard contents (not just string — preserves rich content, files, images)
+        let savedItems = savePasteboardContents(pasteboard)
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
+        // Small delay to ensure pasteboard write is committed before paste
+        usleep(10_000) // 10ms
+
         // Simulate Cmd+V
         simulateKeyPress(keyCode: 0x09, flags: .maskCommand) // 'v' key
 
-        // Restore pasteboard after a delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if let previous = previousContents {
-                pasteboard.clearContents()
-                pasteboard.setString(previous, forType: .string)
-            }
+        // Restore pasteboard after 500ms (matches Wispr Flow timing)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.restorePasteboardContents(pasteboard, items: savedItems)
         }
 
         Logger.accessibility.info("Inserted text via pasteboard fallback")
         return true
     }
 
-    private func replaceViaPasteboard(original: String, replacement: String) -> Bool {
-        // Select the original text length by sending Shift+Left arrow for each character,
-        // then paste the replacement. This is fragile, so we use Cmd+A approach only
-        // if we know the entire field content is our text.
+    // MARK: - Pasteboard Save/Restore
 
-        let pasteboard = NSPasteboard.general
-        let previousContents = pasteboard.string(forType: .string)
+    /// Saves all pasteboard items with all their types, preserving rich content.
+    private func savePasteboardContents(_ pasteboard: NSPasteboard) -> [SavedPasteboardItem] {
+        var savedItems: [SavedPasteboardItem] = []
 
-        // Select the original text: use Cmd+A if the field only contains our text,
-        // otherwise this fallback won't work perfectly
-        // For now, select backwards by the length of the original text
-        let charCount = original.count
-        for _ in 0..<charCount {
-            simulateKeyPress(keyCode: 0x7B, flags: .maskShift) // Left arrow + Shift
-        }
-
-        // Small delay for selection to register
-        usleep(50_000)
-
-        pasteboard.clearContents()
-        pasteboard.setString(replacement, forType: .string)
-        simulateKeyPress(keyCode: 0x09, flags: .maskCommand) // Cmd+V
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if let previous = previousContents {
-                pasteboard.clearContents()
-                pasteboard.setString(previous, forType: .string)
+        for item in pasteboard.pasteboardItems ?? [] {
+            var typeData: [(NSPasteboard.PasteboardType, Data)] = []
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    typeData.append((type, data))
+                }
+            }
+            if !typeData.isEmpty {
+                savedItems.append(SavedPasteboardItem(typeData: typeData))
             }
         }
 
-        Logger.accessibility.info("Replaced text via pasteboard fallback")
-        return true
+        return savedItems
+    }
+
+    /// Restores previously saved pasteboard contents.
+    private func restorePasteboardContents(_ pasteboard: NSPasteboard, items: [SavedPasteboardItem]) {
+        guard !items.isEmpty else { return }
+
+        pasteboard.clearContents()
+
+        for saved in items {
+            let item = NSPasteboardItem()
+            for (type, data) in saved.typeData {
+                item.setData(data, forType: type)
+            }
+            pasteboard.writeObjects([item])
+        }
     }
 
     // MARK: - Key Event Simulation
@@ -245,6 +374,13 @@ final class AccessibilityService {
         keyUp.flags = flags
 
         keyDown.post(tap: .cghidEventTap)
+        usleep(5_000) // 5ms between key down and up for reliability
         keyUp.post(tap: .cghidEventTap)
     }
+}
+
+// MARK: - Types
+
+private struct SavedPasteboardItem {
+    let typeData: [(NSPasteboard.PasteboardType, Data)]
 }
