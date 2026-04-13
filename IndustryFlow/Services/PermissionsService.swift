@@ -31,7 +31,7 @@ final class PermissionsService {
     // MARK: - Private
 
     private var accessibilityMonitorTimer: Timer?
-    private var accessibilityCheckTask: Task<Void, Never>?
+    private var accessibilityCheckTask: Task<Bool, Never>?
     private var isMonitoringAccessibility = false
 
     init() {
@@ -185,17 +185,17 @@ final class PermissionsService {
 
     /// Waits for accessibility to be granted, returning once it is.
     /// Cancellable via the returned Task.
-    func waitForAccessibility() -> Task<Bool, Never> {
+    func waitForAccessibility() {
         accessibilityCheckTask?.cancel()
 
-        let task = Task { [weak self] () -> Bool in
-            // Check up to 5 minutes (150 checks at 2-second intervals)
+        accessibilityCheckTask = Task { [weak self] () -> Bool in
             for _ in 0..<150 {
                 guard !Task.isCancelled else { return false }
 
                 if AXIsProcessTrusted() {
+                    let service = self
                     await MainActor.run {
-                        self?.accessibilityGranted = true
+                        service?.accessibilityGranted = true
                     }
                     return true
                 }
@@ -204,8 +204,5 @@ final class PermissionsService {
             }
             return false
         }
-
-        accessibilityCheckTask = task
-        return task
     }
 }

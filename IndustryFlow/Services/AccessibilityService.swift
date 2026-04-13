@@ -363,7 +363,7 @@ final class AccessibilityService {
     // MARK: - Key Event Simulation
 
     private func simulateKeyPress(keyCode: CGKeyCode, flags: CGEventFlags) {
-        let source = CGEventSource(stateID: .hidEventState)
+        let source = CGEventSource(stateID: .combinedSessionState)
 
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
@@ -373,9 +373,9 @@ final class AccessibilityService {
         keyDown.flags = flags
         keyUp.flags = flags
 
-        keyDown.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cgSessionEventTap)
         usleep(5_000) // 5ms between key down and up for reliability
-        keyUp.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
     }
 }
 
