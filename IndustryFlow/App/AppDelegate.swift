@@ -221,11 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
             appState.showOnboarding = true
         }
-
-        if let profileID = UserDefaults.standard.string(forKey: "selectedProfileID"),
-           let profile = IndustryProfile.allProfiles.first(where: { $0.id == profileID }) {
-            appState.selectedProfile = profile
-        }
+        // Profile and format are restored in AppState.init()
     }
 
     static func registerLoginItem() {
@@ -262,8 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         hotkeyService.unregister()
         permissionsService.stopAllMonitoring()
-
-        UserDefaults.standard.set(appState.selectedProfile.id, forKey: "selectedProfileID")
+        // Profile and format are auto-saved via AppState.didSet
 
         for observer in permissionObservers {
             NotificationCenter.default.removeObserver(observer)

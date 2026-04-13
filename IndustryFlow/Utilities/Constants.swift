@@ -14,9 +14,12 @@ enum Constants {
     static let popoverHeight: CGFloat = 480
     static let hotkeyDisplayName = "Control \u{00D7}2"
 
-    /// Embedded API key for production distribution.
-    /// Set this to your Anthropic API key to ship the app with a built-in key
-    /// so end users don't need their own. Leave empty to require user-provided key.
-    /// The Keychain key (user-provided in Settings) overrides this if set.
+    /// Embedded API key — set YOUR key here for development.
+    /// This eliminates the need to re-enter it after every build.
+    /// For production: either keep embedded (you pay for API) or set to "" to require user key.
+    /// User-provided key in Settings overrides this if set.
+    ///
+    /// HOW TO SET: Replace the empty string below with your Anthropic API key:
+    ///   static let embeddedAPIKey = "sk-ant-api03-YOUR-KEY-HERE"
     static let embeddedAPIKey = ""
 }
