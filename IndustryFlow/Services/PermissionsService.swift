@@ -188,13 +188,15 @@ final class PermissionsService {
     func waitForAccessibility() -> Task<Bool, Never> {
         accessibilityCheckTask?.cancel()
 
-        let task = Task { @MainActor [weak self] -> Bool in
+        let task = Task { [weak self] () -> Bool in
             // Check up to 5 minutes (150 checks at 2-second intervals)
             for _ in 0..<150 {
                 guard !Task.isCancelled else { return false }
 
                 if AXIsProcessTrusted() {
-                    self?.accessibilityGranted = true
+                    await MainActor.run {
+                        self?.accessibilityGranted = true
+                    }
                     return true
                 }
 
