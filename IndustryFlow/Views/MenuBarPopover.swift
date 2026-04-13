@@ -53,7 +53,43 @@ struct MenuBarPopover: View {
                         }
                     }
 
-                    DictationStatusView(appState: appState)
+                    // Status: show polishing result or recording state (no live transcript)
+                    if appState.isPolishing {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Polishing with AI...")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    } else if let polished = appState.polishedText {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text("Last dictation polished")
+                                    .font(.caption)
+                            }
+                        }
+                    } else if appState.isDictating {
+                        HStack(spacing: 6) {
+                            Circle().fill(.red).frame(width: 8, height: 8)
+                            Text("Recording — speak into \(appState.targetAppName ?? "target app")...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        VStack(spacing: 6) {
+                            Image(systemName: "waveform")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                            Text("Double-tap Control to dictate at your cursor")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
 
                     if let error = appState.errorMessage {
                         errorBanner(error)

@@ -166,6 +166,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Permission Change Monitoring
 
     private func observePermissionChanges() {
+        // Close popover when dictation starts from the button
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: .closePopoverForDictation,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.closePopover()
+        }
+        permissionObservers.append(closeObserver)
+
         let restoredObserver = NotificationCenter.default.addObserver(
             forName: .hotkeyPermissionRestored,
             object: nil,

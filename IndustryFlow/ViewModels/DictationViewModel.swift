@@ -58,24 +58,55 @@ final class DictationViewModel {
         insertionStartPosition = -1
         useAXInsertion = true
 
-        // Capture the target app and focused element BEFORE anything.
-        // Focus must stay in the target app — we never activate IndustryFlow.
-        if let frontApp = NSWorkspace.shared.frontmostApplication {
-            appState.targetAppPID = frontApp.processIdentifier
-            appState.targetAppName = frontApp.localizedName
-            targetIsElectronApp = AccessibilityService.isElectronApp(frontApp)
-            capturedElement = accessibilityService.getFocusedElement(forPID: frontApp.processIdentifier)
+        // Find the target app. If we ARE the frontmost app (user clicked Start in popover),
+        // we need to find the app that was focused BEFORE us and return focus to it.
+        var targetApp: NSRunningApplication?
 
-            if targetIsElectronApp {
-                useAXInsertion = false
-                Logger.app.info("Target is Electron app — using backspace+paste for live insertion")
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let ourBundleID = Bundle.main.bundleIdentifier ?? "com.industryflow.app"
+
+        if frontApp?.bundleIdentifier == ourBundleID {
+            // IndustryFlow is frontmost (user clicked Start button in popover).
+            // Find the most recent non-IndustryFlow app from the ordered list.
+            for app in NSWorkspace.shared.runningApplications where
+                app.activationPolicy == .regular &&
+                app.bundleIdentifier != ourBundleID &&
+                !app.isTerminated {
+                targetApp = app
+                break
             }
 
-            // Record the cursor position for AX range-based insertion
-            if useAXInsertion, let element = capturedElement {
-                insertionStartPosition = accessibilityService.getCursorPosition(in: element)
-                Logger.app.info("Captured cursor position: \(self.insertionStartPosition)")
+            // Close the popover and return focus to the target app
+            if let targetApp {
+                // Post notification to close popover
+                NotificationCenter.default.post(name: .closePopoverForDictation, object: nil)
+                targetApp.activate()
+                // Small delay for focus to settle
+                usleep(200_000) // 200ms
             }
+        } else {
+            targetApp = frontApp
+        }
+
+        guard let targetApp else {
+            appState.errorMessage = "No target app found. Click into an app first, then use double-tap Control."
+            return
+        }
+
+        appState.targetAppPID = targetApp.processIdentifier
+        appState.targetAppName = targetApp.localizedName
+        targetIsElectronApp = AccessibilityService.isElectronApp(targetApp)
+        capturedElement = accessibilityService.getFocusedElement(forPID: targetApp.processIdentifier)
+
+        if targetIsElectronApp {
+            useAXInsertion = false
+            Logger.app.info("Target is Electron app — using backspace+paste for live insertion")
+        }
+
+        // Record the cursor position for AX range-based insertion
+        if useAXInsertion, let element = capturedElement {
+            insertionStartPosition = accessibilityService.getCursorPosition(in: element)
+            Logger.app.info("Captured cursor position: \(self.insertionStartPosition)")
         }
 
         let session = TranscriptionSession(profile: appState.selectedProfile)

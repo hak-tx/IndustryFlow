@@ -325,4 +325,7 @@ extension Notification.Name {
 
     /// Posted when the hotkey service detects that accessibility permission has been restored.
     static let hotkeyPermissionRestored = Notification.Name("com.industryflow.hotkeyPermissionRestored")
+
+    /// Posted to tell the AppDelegate to close the popover (e.g., before starting dictation from the button).
+    static let closePopoverForDictation = Notification.Name("com.industryflow.closePopoverForDictation")
 }
