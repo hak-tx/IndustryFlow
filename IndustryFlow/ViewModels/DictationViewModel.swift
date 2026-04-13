@@ -14,9 +14,19 @@ final class DictationViewModel {
 
     private var transcriptionTask: Task<Void, Never>?
 
-    /// What we have ACTUALLY typed into the target app via CGEvent.
-    /// This is the source of truth — not the recognizer's output.
-    private var actuallyTypedText = ""
+    /// What is physically typed into the target document right now.
+    /// This is the source of truth for what the user sees.
+    private var actuallyInDocument = ""
+
+    /// Most recent text from the recognizer (may be mid-revision).
+    private var latestRecognizerText = ""
+
+    /// Debounce timer — waits for recognizer to stabilize before typing.
+    private var debounceTask: Task<Void, Never>?
+
+    /// How long to wait for the recognizer to stop revising before we commit text.
+    /// 250ms is imperceptible to the user but enough for the recognizer to settle.
+    private let debounceInterval: UInt64 = 250_000_000 // 250ms in nanoseconds
 
     init(appState: AppState, permissionsService: PermissionsService) {
         self.appState = appState
@@ -49,7 +59,6 @@ final class DictationViewModel {
         let ourBundleID = Bundle.main.bundleIdentifier ?? "com.industryflow.app"
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ourBundleID {
             NotificationCenter.default.post(name: .closePopoverForDictation, object: nil)
-
             for app in NSWorkspace.shared.runningApplications where
                 app.activationPolicy == .regular &&
                 app.bundleIdentifier != ourBundleID &&
@@ -63,14 +72,18 @@ final class DictationViewModel {
         appState.clearError()
         appState.liveTranscript = ""
         appState.polishedText = nil
-        actuallyTypedText = ""
+
+        // Reset all state
+        actuallyInDocument = ""
+        latestRecognizerText = ""
+        debounceTask?.cancel()
+        debounceTask = nil
 
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             appState.targetAppName = frontApp.localizedName
         }
 
         appState.isDictating = true
-
         Logger.app.info("Dictation started — \(self.appState.selectedProfile.name) / \(self.appState.selectedFormat.name)")
 
         let hints = appState.allVocabularyHints
@@ -83,7 +96,7 @@ final class DictationViewModel {
                 switch update {
                 case .partial(let text), .final_(let text):
                     self.appState.liveTranscript = text
-                    self.handleTranscriptionUpdate(text)
+                    self.onRecognizerUpdate(text)
 
                 case .error(let message):
                     Logger.app.error("Transcription error: \(message)")
@@ -97,22 +110,28 @@ final class DictationViewModel {
     func stopDictation() {
         guard appState.isDictating else { return }
 
-        Logger.app.info("Dictation stopped — \(self.actuallyTypedText.count) characters typed")
-
         transcriptionService.stopTranscription()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         appState.isDictating = false
 
-        let rawText = actuallyTypedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Commit any pending text immediately (don't wait for debounce)
+        debounceTask?.cancel()
+        debounceTask = nil
+        if latestRecognizerText != actuallyInDocument {
+            commitText(latestRecognizerText)
+        }
+
+        Logger.app.info("Dictation stopped — \(self.actuallyInDocument.count) characters in document")
+
+        // Wait for typing queue to finish, then polish
+        let rawText = actuallyInDocument.trimmingCharacters(in: .whitespacesAndNewlines)
+        let charCount = actuallyInDocument.count
         guard !rawText.isEmpty else {
             Logger.app.info("No text was transcribed")
             return
         }
 
-        // Wait for all queued typing to physically finish before polishing.
-        // Without this, selectAndReplace could fire while text is still being typed.
-        let charCount = actuallyTypedText.count
         let service = accessibilityService
         Task.detached { [weak self] in
             service.drainTypingQueue()
@@ -122,34 +141,71 @@ final class DictationViewModel {
         }
     }
 
-    // MARK: - Live Typing
+    // MARK: - Debounce + Diff
 
-    /// Types only genuinely NEW characters that extend past what we've already typed.
+    /// Called on every partial/final from the recognizer.
+    /// Does NOT type immediately. Stores the text and resets a 250ms timer.
+    /// When the timer fires (text has been stable for 250ms), commitText runs.
+    private func onRecognizerUpdate(_ text: String) {
+        latestRecognizerText = text
+
+        // Reset the debounce timer
+        debounceTask?.cancel()
+        debounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: self?.debounceInterval ?? 250_000_000)
+            guard let self, !Task.isCancelled, self.appState.isDictating else { return }
+            self.commitText(self.latestRecognizerText)
+        }
+    }
+
+    /// Commits stable text to the document. Computes a proper diff against
+    /// what's already typed, backspaces to the divergence point, and types
+    /// the corrected text from there.
     ///
-    /// Dead simple: track the count of characters we've typed. If the recognizer
-    /// sends text longer than that count, type the suffix. If it sends shorter
-    /// text (during revision or chain), ignore it completely.
-    ///
-    /// This means: we ONLY ever type forward. Never overwrite. Never backspace.
-    /// Mid-dictation text might have small inaccuracies from recognizer revisions,
-    /// but Claude fixes everything during polishing. Zero words are lost.
-    private func handleTranscriptionUpdate(_ newText: String) {
-        let currentCount = actuallyTypedText.count
+    /// This handles ALL recognizer revision cases correctly:
+    /// - Capitalization changes ("hello" → "Hello")
+    /// - Punctuation insertion ("Hello world" → "Hello, world")
+    /// - Word corrections ("their" → "there")
+    /// - New text appended ("Hello" → "Hello world")
+    private func commitText(_ stableText: String) {
+        guard stableText != actuallyInDocument else { return }
 
-        // ONLY type forward — if recognizer text is shorter or equal, skip entirely.
-        // This prevents overwrites during chain transitions and recognizer revisions.
-        guard newText.count > currentCount else { return }
+        // Find the longest common prefix (case-sensitive, exact match)
+        let commonLen = commonPrefixLength(actuallyInDocument, stableText)
 
-        // Extract only the characters past what we've already typed
-        let deltaStart = newText.index(newText.startIndex, offsetBy: currentCount)
-        let delta = String(newText[deltaStart...])
-        guard !delta.isEmpty else { return }
+        // How many characters to delete from the end of what's in the document
+        let charsToDelete = actuallyInDocument.count - commonLen
 
-        // Update our record BEFORE dispatching (prevents race with next partial)
-        actuallyTypedText += delta
+        // What to type after the common prefix
+        let newSuffix = String(stableText.dropFirst(commonLen))
 
-        // Enqueue on serial typing queue — calls never overlap, execute in order
-        accessibilityService.enqueueTyping(delta)
+        Logger.app.debug("""
+        Commit: common=\(commonLen), delete=\(charsToDelete), \
+        type=\(newSuffix.count) chars
+        """)
+
+        // Backspace the divergent portion, then type the new text
+        if charsToDelete > 0 {
+            accessibilityService.enqueueBackspaces(charsToDelete)
+        }
+        if !newSuffix.isEmpty {
+            accessibilityService.enqueueTyping(newSuffix)
+        }
+
+        actuallyInDocument = stableText
+    }
+
+    /// Returns the length of the longest common prefix between two strings.
+    private func commonPrefixLength(_ a: String, _ b: String) -> Int {
+        let aChars = Array(a)
+        let bChars = Array(b)
+        let minLen = min(aChars.count, bChars.count)
+        for i in 0..<minLen {
+            if aChars[i] != bChars[i] {
+                return i
+            }
+        }
+        return minLen
     }
 
     // MARK: - Polish and Replace

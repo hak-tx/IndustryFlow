@@ -58,10 +58,31 @@ final class AccessibilityService {
         }
     }
 
+    /// Queues backspace key presses on the serial typing queue.
+    /// Used to delete previously typed text before retyping corrected version.
+    func enqueueBackspaces(_ count: Int) {
+        guard count > 0 else { return }
+        typingQueue.async { [self] in
+            self.backspaceSync(count)
+        }
+    }
+
     /// Blocks until all queued typing operations have completed.
-    /// Call this before selectAndReplace to ensure all text is physically in the document.
     func drainTypingQueue() {
         typingQueue.sync {}
+    }
+
+    /// Backspaces synchronously. MUST only be called on typingQueue.
+    private func backspaceSync(_ count: Int) {
+        guard count > 0 else { return }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for _ in 0..<count {
+            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: false) else { continue }
+            keyDown.post(tap: .cgSessionEventTap)
+            keyUp.post(tap: .cgSessionEventTap)
+            usleep(1_000) // 1ms between backspaces
+        }
     }
 
     /// Types text synchronously. MUST only be called on typingQueue.
