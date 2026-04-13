@@ -17,6 +17,8 @@ final class SpeechTranscriptionService: @unchecked Sendable {
     private var continuation: AsyncStream<TranscriptionUpdate>.Continuation?
     private var accumulatedTranscript = ""
     private var isRunning = false
+    private var isChaining = false
+    private var savedVocabularyHints: [String] = []
 
     init(locale: Locale = .current) {
         self.speechRecognizer = SFSpeechRecognizer(locale: locale)
@@ -39,6 +41,8 @@ final class SpeechTranscriptionService: @unchecked Sendable {
     // MARK: - Transcription
 
     func startTranscription(vocabularyHints: [String] = []) -> AsyncStream<TranscriptionUpdate> {
+        savedVocabularyHints = vocabularyHints
+
         let stream = AsyncStream<TranscriptionUpdate> { continuation in
             self.continuation = continuation
 
@@ -49,7 +53,7 @@ final class SpeechTranscriptionService: @unchecked Sendable {
             }
 
             do {
-                try self.configureAndStartAudio(vocabularyHints: vocabularyHints)
+                try self.configureAndStartAudio()
             } catch {
                 Logger.transcription.error("Failed to start transcription: \(error.localizedDescription)")
                 continuation.yield(.error(error.localizedDescription))
@@ -61,53 +65,24 @@ final class SpeechTranscriptionService: @unchecked Sendable {
 
     func stopTranscription() {
         Logger.transcription.info("Stopping transcription")
+        isRunning = false
         recognitionRequest?.endAudio()
         cleanupAudio()
-        isRunning = false
     }
 
     // MARK: - Private
 
-    private func configureAndStartAudio(vocabularyHints: [String]) throws {
+    private func configureAndStartAudio() throws {
         guard let speechRecognizer, speechRecognizer.isAvailable else {
             throw TranscriptionError.recognizerUnavailable
         }
 
-        // Cancel any existing task
         recognitionTask?.cancel()
         recognitionTask = nil
-
         accumulatedTranscript = ""
         isRunning = true
 
-        startRecognitionRequest(vocabularyHints: vocabularyHints)
-    }
-
-    private var isChaining = false
-
-    private func startRecognitionRequest(vocabularyHints: [String]) {
-        isChaining = false
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.taskHint = .dictation
-
-        if !vocabularyHints.isEmpty {
-            request.contextualStrings = vocabularyHints
-        }
-
-        // Prefer on-device recognition if available (avoids network dependency)
-        if #available(macOS 13.0, *) {
-            request.requiresOnDeviceRecognition = false
-            if speechRecognizer?.supportsOnDeviceRecognition == true {
-                request.requiresOnDeviceRecognition = true
-                Logger.transcription.info("Using on-device recognition")
-            }
-        }
-
-        self.recognitionRequest = request
-
-        // Install audio tap
+        // Start the audio engine ONCE — it stays running for the entire session
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
@@ -116,18 +91,37 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         }
 
         audioEngine.prepare()
+        try audioEngine.start()
+        Logger.transcription.info("Audio engine started")
 
-        do {
-            try audioEngine.start()
-            Logger.transcription.info("Audio engine started")
-        } catch {
-            Logger.transcription.error("Audio engine failed to start: \(error.localizedDescription)")
-            continuation?.yield(.error("Failed to start audio: \(error.localizedDescription)"))
-            continuation?.finish()
-            return
+        // Start the first recognition request
+        startRecognitionRequest()
+    }
+
+    private func startRecognitionRequest() {
+        isChaining = false
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+
+        if !savedVocabularyHints.isEmpty {
+            request.contextualStrings = savedVocabularyHints
         }
 
-        // Start recognition task
+        // On-device recognition has NO time limit (no 1-minute cap).
+        // This eliminates the need for chaining entirely.
+        if #available(macOS 13.0, *) {
+            if speechRecognizer?.supportsOnDeviceRecognition == true {
+                request.requiresOnDeviceRecognition = true
+                Logger.transcription.info("Using on-device recognition (no time limit)")
+            } else {
+                Logger.transcription.info("On-device not available, using server (1-min limit, will chain)")
+            }
+        }
+
+        self.recognitionRequest = request
+
         recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
 
@@ -135,21 +129,19 @@ final class SpeechTranscriptionService: @unchecked Sendable {
                 let text = result.bestTranscription.formattedString
 
                 if result.isFinal {
-                    // Accumulate final segments
                     if !self.accumulatedTranscript.isEmpty {
                         self.accumulatedTranscript += " "
                     }
                     self.accumulatedTranscript += text
                     self.continuation?.yield(.final_(self.accumulatedTranscript))
 
-                    // If still running, chain a new recognition request
-                    // (handles Apple's ~1 minute limit per request)
+                    // Chain a new request if still running
+                    // (only needed for server-based recognition hitting the 1-min limit)
                     if self.isRunning {
-                        Logger.transcription.info("Chaining new recognition request")
-                        self.chainNewRequest(vocabularyHints: self.recognitionRequest?.contextualStrings ?? [])
+                        Logger.transcription.info("Final result received, chaining new request")
+                        self.chainNewRequest()
                     }
                 } else {
-                    // Partial result — show accumulated + current partial
                     var fullText = self.accumulatedTranscript
                     if !fullText.isEmpty {
                         fullText += " "
@@ -162,50 +154,33 @@ final class SpeechTranscriptionService: @unchecked Sendable {
             if let error {
                 let nsError = error as NSError
 
-                // During chaining, the old task is cancelled which triggers an error.
-                // Ignore ALL errors while chaining — the new request is already starting.
+                // Ignore errors during chaining — the old task is being torn down
                 if self.isChaining {
                     Logger.transcription.debug("Ignoring error during chain: \(nsError.code)")
                     return
                 }
 
-                // Error 1101 = request limit reached — chain a new request
-                // Error 216, 209 = task/request cancelled — also chain
-                // Error 1110 = no speech detected timeout — chain (user might resume speaking)
-                let recoverableCodes = [1101, 216, 209, 1110]
-                if recoverableCodes.contains(nsError.code) || nsError.domain == "kAFAssistantErrorDomain" {
-                    if self.isRunning {
-                        Logger.transcription.info("Recoverable error (\(nsError.code)), chaining new request")
-                        self.chainNewRequest(vocabularyHints: self.recognitionRequest?.contextualStrings ?? [])
-                    }
-                } else if self.isRunning {
-                    // Truly fatal error — log it but try to recover anyway
-                    Logger.transcription.error("Recognition error (\(nsError.domain) \(nsError.code)): \(error.localizedDescription)")
-                    // Try to chain rather than giving up
-                    self.chainNewRequest(vocabularyHints: self.recognitionRequest?.contextualStrings ?? [])
+                if self.isRunning {
+                    Logger.transcription.info("Recognition error (\(nsError.code)), attempting recovery")
+                    self.chainNewRequest()
                 }
             }
         }
     }
 
-    private func chainNewRequest(vocabularyHints: [String]) {
-        // Set flag BEFORE cancelling to suppress error callbacks from the dying task
+    private func chainNewRequest() {
         isChaining = true
 
-        audioEngine.inputNode.removeTap(onBus: 0)
-
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-
+        // Cancel the old recognition task but DO NOT stop the audio engine.
+        // The audio tap keeps running — no gap in audio capture.
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
 
-        // Short delay to let the system settle, then restart
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        // Brief delay for the system to release the old task, then start a new one
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self, self.isRunning else { return }
-            self.startRecognitionRequest(vocabularyHints: vocabularyHints)
+            self.startRecognitionRequest()
         }
     }
 

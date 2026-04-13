@@ -14,11 +14,9 @@ final class DictationViewModel {
 
     private var transcriptionTask: Task<Void, Never>?
 
-    /// The longest transcript we've seen — we only type forward past this.
-    private var highWaterText = ""
-
-    /// Total characters we've typed into the target app.
-    private var typedCharacterCount = 0
+    /// What we have ACTUALLY typed into the target app via CGEvent.
+    /// This is the source of truth — not the recognizer's output.
+    private var actuallyTypedText = ""
 
     init(appState: AppState, permissionsService: PermissionsService) {
         self.appState = appState
@@ -52,7 +50,6 @@ final class DictationViewModel {
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ourBundleID {
             NotificationCenter.default.post(name: .closePopoverForDictation, object: nil)
 
-            // Find and activate the previous app
             for app in NSWorkspace.shared.runningApplications where
                 app.activationPolicy == .regular &&
                 app.bundleIdentifier != ourBundleID &&
@@ -60,18 +57,14 @@ final class DictationViewModel {
                 app.activate()
                 break
             }
-            usleep(300_000) // 300ms for focus to settle
+            usleep(300_000)
         }
 
         appState.clearError()
         appState.liveTranscript = ""
         appState.polishedText = nil
+        actuallyTypedText = ""
 
-        // Reset live typing state
-        highWaterText = ""
-        typedCharacterCount = 0
-
-        // Record target app name for UI display
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             appState.targetAppName = frontApp.localizedName
         }
@@ -80,7 +73,6 @@ final class DictationViewModel {
 
         Logger.app.info("Dictation started — \(self.appState.selectedProfile.name) / \(self.appState.selectedFormat.name)")
 
-        // Start transcription with industry vocabulary hints
         let hints = appState.allVocabularyHints
         let stream = transcriptionService.startTranscription(vocabularyHints: hints)
 
@@ -91,7 +83,7 @@ final class DictationViewModel {
                 switch update {
                 case .partial(let text), .final_(let text):
                     self.appState.liveTranscript = text
-                    self.handlePartialResult(text)
+                    self.handleTranscriptionUpdate(text)
 
                 case .error(let message):
                     Logger.app.error("Transcription error: \(message)")
@@ -105,44 +97,65 @@ final class DictationViewModel {
     func stopDictation() {
         guard appState.isDictating else { return }
 
-        Logger.app.info("Dictation stopped — \(self.typedCharacterCount) characters typed")
+        Logger.app.info("Dictation stopped — \(self.actuallyTypedText.count) characters typed")
 
         transcriptionService.stopTranscription()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         appState.isDictating = false
 
-        let rawText = highWaterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawText = actuallyTypedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawText.isEmpty else {
             Logger.app.info("No text was transcribed")
             return
         }
 
-        // Raw text is already in the target app (typed live via CGEvent).
-        // Now polish it and replace.
-        polishAndReplace(rawText: rawText, characterCount: typedCharacterCount)
+        polishAndReplace(rawText: rawText, characterCount: actuallyTypedText.count)
     }
 
     // MARK: - Live Typing
 
-    /// Called on every partial/final transcription result.
-    /// Types ONLY new characters beyond what we've already typed.
-    /// Never backspaces — only moves forward.
+    /// Compares the new transcription text with what we've already typed.
+    /// Types only the genuinely new suffix.
     ///
-    /// IMPORTANT: Typing is dispatched off the main actor so it doesn't
-    /// block the transcription stream from delivering the next update.
-    private func handlePartialResult(_ newText: String) {
-        guard newText.count > typedCharacterCount else { return }
+    /// Uses string prefix matching — finds how much of `actuallyTypedText`
+    /// matches the beginning of `newText`, then types only what's after that.
+    ///
+    /// When the recognizer chains (new session after pause), the accumulated
+    /// transcript includes old text + new text. Since `actuallyTypedText`
+    /// already matches the old portion, we only type the new words.
+    private func handleTranscriptionUpdate(_ newText: String) {
+        // Find the longest prefix of newText that matches actuallyTypedText
+        // (case-insensitive because the recognizer may change capitalization)
+        let newLower = newText.lowercased()
+        let typedLower = actuallyTypedText.lowercased()
 
-        let delta = String(newText.suffix(newText.count - typedCharacterCount))
+        // How much of what we typed is still present at the start of the new text?
+        var matchLength = 0
+        let minLen = min(newLower.count, typedLower.count)
+
+        for i in 0..<minLen {
+            let newIdx = newLower.index(newLower.startIndex, offsetBy: i)
+            let typedIdx = typedLower.index(typedLower.startIndex, offsetBy: i)
+            if newLower[newIdx] == typedLower[typedIdx] {
+                matchLength = i + 1
+            } else {
+                break
+            }
+        }
+
+        // If the new text extends beyond what we've typed, type the delta
+        guard newText.count > matchLength else { return }
+
+        let deltaStartIndex = newText.index(newText.startIndex, offsetBy: matchLength)
+        let delta = String(newText[deltaStartIndex...])
         guard !delta.isEmpty else { return }
 
-        let service = accessibilityService
-        typedCharacterCount += delta.count
-        highWaterText = newText
+        // Update our record BEFORE dispatching the typing
+        actuallyTypedText += delta
 
-        // Type on a background queue so we don't block the main thread
-        // (typeText uses usleep for inter-character timing)
+        // Type on background queue (typeText uses usleep for timing)
+        let service = accessibilityService
         DispatchQueue.global(qos: .userInteractive).async {
             service.typeText(delta)
         }
@@ -169,7 +182,6 @@ final class DictationViewModel {
                     self.appState.isPolishing = false
 
                     if result.polished != rawText {
-                        // Select the raw text we typed and replace with polished version
                         self.accessibilityService.selectAndReplace(
                             result.polished,
                             characterCount: characterCount
