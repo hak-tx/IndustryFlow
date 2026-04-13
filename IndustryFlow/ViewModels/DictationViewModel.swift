@@ -110,7 +110,16 @@ final class DictationViewModel {
             return
         }
 
-        polishAndReplace(rawText: rawText, characterCount: actuallyTypedText.count)
+        // Wait for all queued typing to physically finish before polishing.
+        // Without this, selectAndReplace could fire while text is still being typed.
+        let charCount = actuallyTypedText.count
+        let service = accessibilityService
+        Task.detached { [weak self] in
+            service.drainTypingQueue()
+            await MainActor.run {
+                self?.polishAndReplace(rawText: rawText, characterCount: charCount)
+            }
+        }
     }
 
     // MARK: - Live Typing
@@ -139,11 +148,8 @@ final class DictationViewModel {
         // Update our record BEFORE dispatching (prevents race with next partial)
         actuallyTypedText += delta
 
-        // Type on background queue (typeText uses usleep for timing)
-        let service = accessibilityService
-        DispatchQueue.global(qos: .userInteractive).async {
-            service.typeText(delta)
-        }
+        // Enqueue on serial typing queue — calls never overlap, execute in order
+        accessibilityService.enqueueTyping(delta)
     }
 
     // MARK: - Polish and Replace

@@ -8,6 +8,12 @@ import os
 /// the normal keyboard input pipeline and works in every app.
 final class AccessibilityService {
 
+    /// Serial queue for ALL CGEvent typing operations.
+    /// Ensures typing calls execute one at a time, in order.
+    /// Without this, concurrent typeText calls interleave characters
+    /// and corrupt the cursor position.
+    private let typingQueue = DispatchQueue(label: "com.industryflow.typing", qos: .userInteractive)
+
     /// Known Electron app bundle ID prefixes.
     private static let electronBundlePrefixes: Set<String> = [
         "com.microsoft.VSCode", "com.visualstudio.code", "com.todesktop.",
@@ -43,10 +49,23 @@ final class AccessibilityService {
 
     // MARK: - Live Text Typing via CGEvent
 
-    /// Types text at the current cursor position by simulating keyboard input.
-    /// Uses CGEvent.keyboardSetUnicodeString — works in every app because it
-    /// goes through the normal keyboard input pipeline, just like real typing.
-    func typeText(_ text: String) {
+    /// Queues text to be typed at the cursor. All typing goes through the serial
+    /// typingQueue so calls never overlap. Safe to call rapidly from the main thread.
+    func enqueueTyping(_ text: String) {
+        guard !text.isEmpty else { return }
+        typingQueue.async { [self] in
+            self.typeTextSync(text)
+        }
+    }
+
+    /// Blocks until all queued typing operations have completed.
+    /// Call this before selectAndReplace to ensure all text is physically in the document.
+    func drainTypingQueue() {
+        typingQueue.sync {}
+    }
+
+    /// Types text synchronously. MUST only be called on typingQueue.
+    private func typeTextSync(_ text: String) {
         guard !text.isEmpty else { return }
 
         let source = CGEventSource(stateID: .combinedSessionState)
