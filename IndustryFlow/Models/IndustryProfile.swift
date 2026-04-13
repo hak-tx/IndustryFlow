@@ -162,16 +162,39 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         exactly as spoken.
         """,
         vocabularyHints: [
-            "API", "REST", "GraphQL", "microservices", "monolith", "refactor",
-            "dependency injection", "singleton", "observer pattern", "MVC", "MVVM",
-            "CI/CD", "DevOps", "Kubernetes", "Docker", "containerization",
-            "Git", "pull request", "merge conflict", "rebase", "branch",
+            // Version control
+            "Git", "git pull", "git push", "git commit", "git merge", "git rebase",
+            "git stash", "git clone", "git checkout", "git branch", "git diff",
+            "pull request", "merge conflict", "cherry pick", "HEAD", "origin", "upstream",
+            // APIs & protocols
+            "API", "REST", "RESTful", "GraphQL", "gRPC", "WebSocket", "webhook",
+            "OAuth", "JWT", "CORS", "HTTPS", "SSL", "TLS", "endpoint",
+            // Architecture
+            "microservices", "monolith", "serverless", "MVC", "MVVM", "MVP",
+            "dependency injection", "singleton", "observer pattern", "pub sub",
+            // DevOps & infra
+            "CI/CD", "DevOps", "Kubernetes", "K8s", "Docker", "container",
+            "AWS", "S3", "EC2", "Lambda", "Azure", "GCP", "Terraform",
+            "NGINX", "load balancer", "CDN", "DNS", "SSH", "YAML", "JSON",
+            // Languages & tools
+            "JavaScript", "TypeScript", "Python", "Swift", "Rust", "Go", "Java",
+            "React", "Node", "npm", "yarn", "pip", "Xcode", "VS Code",
+            "PostgreSQL", "MySQL", "MongoDB", "Redis", "SQLite", "NoSQL",
+            // Programming concepts
             "async", "await", "callback", "promise", "closure", "lambda",
             "polymorphism", "inheritance", "encapsulation", "abstraction",
-            "stack trace", "debug", "breakpoint", "unit test", "integration test",
-            "linting", "transpile", "compile", "runtime", "SDK", "framework",
             "boolean", "integer", "string", "array", "dictionary", "hashmap",
-            "algorithm", "binary search", "recursion", "iteration", "OAuth"
+            "null", "nil", "undefined", "enum", "struct", "class", "interface",
+            "refactor", "linting", "transpile", "compile", "runtime", "SDK",
+            "framework", "library", "module", "package", "dependency",
+            // Testing & debugging
+            "unit test", "integration test", "end-to-end", "E2E", "TDD", "BDD",
+            "stack trace", "debug", "breakpoint", "console log", "stderr", "stdout",
+            "CI", "CD", "pipeline", "deploy", "rollback", "staging", "production",
+            // Common phrases recognizer mangles
+            "localhost", "config", "env", "dotenv", "cron job", "regex",
+            "backend", "frontend", "full stack", "tech debt", "code review",
+            "sprint", "standup", "retro", "kanban", "scrum", "agile"
         ]
     )
 
