@@ -85,6 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         permissionsService.refreshStatus()
 
+        // Try to register hotkey if accessibility is now granted but hotkey isn't active
+        if permissionsService.accessibilityGranted && !hotkeyService.isActive {
+            Logger.hotkey.info("Accessibility granted — registering hotkey now")
+            hotkeyService.register()
+        }
+
         // CRITICAL: For LSUIElement (menu bar only) apps, the app must be
         // activated for the popover to receive mouse/keyboard input.
         // Without this, the popover appears but all controls are dead.

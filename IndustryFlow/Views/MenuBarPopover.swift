@@ -26,7 +26,32 @@ struct MenuBarPopover: View {
             // Main content
             ScrollView {
                 VStack(spacing: 16) {
-                    IndustryPickerView(selectedProfile: $appState.selectedProfile)
+                    // Industry + Format pickers side by side
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Industry")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Picker("", selection: $appState.selectedProfile) {
+                                ForEach(IndustryProfile.allProfiles) { profile in
+                                    Label(profile.name, systemImage: profile.icon).tag(profile)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Format")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Picker("", selection: $appState.selectedFormat) {
+                                ForEach(WritingFormat.allFormats) { format in
+                                    Label(format.name, systemImage: format.icon).tag(format)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                    }
 
                     DictationStatusView(appState: appState)
 

@@ -26,11 +26,6 @@ struct SettingsView: View {
                     Label("API", systemImage: "key")
                 }
 
-            profilesTab
-                .tabItem {
-                    Label("Profiles", systemImage: "person.2")
-                }
-
             permissionsTab
                 .tabItem {
                     Label("Permissions", systemImage: "lock.shield")
@@ -89,14 +84,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Default Industry") {
-                Picker("Profile:", selection: $appState.selectedProfile) {
-                    ForEach(IndustryProfile.allProfiles) { profile in
-                        Label(profile.name, systemImage: profile.icon)
-                            .tag(profile)
-                    }
-                }
-            }
         }
         .formStyle(.grouped)
     }
@@ -208,56 +195,49 @@ struct SettingsView: View {
 
     private var apiTab: some View {
         Form {
-            Section("Anthropic API Key") {
+            if !Constants.embeddedAPIKey.isEmpty {
+                Section("Built-in API Key") {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("IndustryFlow includes a built-in API key. No setup needed.")
+                    }
+                    .font(.caption)
+                }
+            }
+
+            Section(Constants.embeddedAPIKey.isEmpty ? "Anthropic API Key" : "Custom API Key (Optional Override)") {
                 SecureField("sk-ant-...", text: $settingsVM.apiKey)
                     .textFieldStyle(.roundedBorder)
 
                 HStack {
-                    Button("Save Key") {
+                    Button("Save") {
                         settingsVM.saveAPIKey()
                     }
                     .disabled(settingsVM.apiKey.isEmpty)
 
-                    Button("Validate") {
-                        settingsVM.validateAPIKey()
-                    }
-                    .disabled(settingsVM.apiKey.isEmpty || settingsVM.isValidatingKey)
-
-                    if settingsVM.isValidatingKey {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
                     Spacer()
 
-                    if settingsVM.apiKey.isEmpty {
-                        // No button shown
-                    } else {
-                        Button("Delete", role: .destructive) {
+                    if !settingsVM.apiKey.isEmpty {
+                        Button("Remove", role: .destructive) {
                             settingsVM.deleteAPIKey()
                         }
                     }
                 }
 
-                if let result = settingsVM.keyValidationResult {
+                if let current = ClaudePolishingService.resolveAPIKey() {
                     HStack(spacing: 4) {
-                        switch result {
-                        case .valid:
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text("API key is valid")
-                                .foregroundStyle(.green)
-                        case .invalid:
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.red)
-                            Text("API key is invalid")
-                                .foregroundStyle(.red)
-                        case .error(let msg):
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.yellow)
-                            Text(msg)
-                                .foregroundStyle(.secondary)
-                        }
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("Active key: \(String(current.prefix(12)))...")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                } else {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                        Text("No API key configured. Enter your Anthropic key above.")
                     }
                     .font(.caption)
                 }

@@ -10,7 +10,13 @@ enum Constants {
     static let maxPolishingTokens = 4096
     static let keychainServiceName = "com.industryflow.api-key"
     static let keychainAccountName = "anthropic-api-key"
-    static let popoverWidth: CGFloat = 340
-    static let popoverHeight: CGFloat = 420
+    static let popoverWidth: CGFloat = 360
+    static let popoverHeight: CGFloat = 480
     static let hotkeyDisplayName = "Control \u{00D7}2"
+
+    /// Embedded API key for production distribution.
+    /// Set this to your Anthropic API key to ship the app with a built-in key
+    /// so end users don't need their own. Leave empty to require user-provided key.
+    /// The Keychain key (user-provided in Settings) overrides this if set.
+    static let embeddedAPIKey = ""
 }

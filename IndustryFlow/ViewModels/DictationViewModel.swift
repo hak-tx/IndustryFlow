@@ -164,6 +164,7 @@ final class DictationViewModel {
                 let result = try await self.polishingService.polish(
                     text: rawText,
                     profile: self.appState.selectedProfile,
+                    format: self.appState.selectedFormat,
                     glossary: self.appState.customGlossary
                 )
 

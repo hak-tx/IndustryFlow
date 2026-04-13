@@ -5,6 +5,7 @@ final class AppState {
     var isDictating: Bool = false
     var liveTranscript: String = ""
     var selectedProfile: IndustryProfile = .general
+    var selectedFormat: WritingFormat = .general
     var customGlossary: CustomGlossary?
     var polishedText: String?
     var isPolishing: Bool = false

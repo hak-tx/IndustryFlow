@@ -73,10 +73,15 @@ final class ClaudePolishingService {
     /// 1. Baseline dictation cleanup instructions (universal)
     /// 2. Industry-specific profile instructions
     /// 3. Custom company glossary (if any)
-    private func buildSystemPrompt(profile: IndustryProfile, glossary: CustomGlossary?) -> String {
+    private func buildSystemPrompt(profile: IndustryProfile, format: WritingFormat?, glossary: CustomGlossary?) -> String {
         var prompt = Self.baselineCleanupInstructions
         prompt += "\n\n"
         prompt += profile.systemPrompt
+
+        if let format, format.id != "general" {
+            prompt += "\n\n"
+            prompt += format.promptFragment
+        }
 
         if let glossary, !glossary.terms.isEmpty {
             prompt += glossary.glossaryPromptFragment
@@ -86,10 +91,23 @@ final class ClaudePolishingService {
         return prompt
     }
 
+    // MARK: - API Key Resolution
+
+    /// Returns the active API key: user-provided (Keychain) takes priority, then embedded.
+    static func resolveAPIKey() -> String? {
+        if let userKey = KeychainHelper.retrieve(), !userKey.isEmpty {
+            return userKey
+        }
+        if !Constants.embeddedAPIKey.isEmpty {
+            return Constants.embeddedAPIKey
+        }
+        return nil
+    }
+
     // MARK: - Polishing
 
-    func polish(text: String, profile: IndustryProfile, glossary: CustomGlossary? = nil) async throws -> PolishingResult {
-        guard let apiKey = KeychainHelper.retrieve(), !apiKey.isEmpty else {
+    func polish(text: String, profile: IndustryProfile, format: WritingFormat? = nil, glossary: CustomGlossary? = nil) async throws -> PolishingResult {
+        guard let apiKey = Self.resolveAPIKey() else {
             throw PolishingError.missingAPIKey
         }
 
@@ -100,7 +118,7 @@ final class ClaudePolishingService {
 
         Logger.polishing.info("Polishing \(trimmed.count) characters with profile: \(profile.name)")
 
-        let systemPrompt = buildSystemPrompt(profile: profile, glossary: glossary)
+        let systemPrompt = buildSystemPrompt(profile: profile, format: format, glossary: glossary)
 
         let requestBody = MessagesRequest(
             model: Constants.defaultModel,
