@@ -43,7 +43,7 @@ final class HotkeyService {
     private var tainted = false
 
     /// Monotonic clock source — resilient across sleep/wake unlike ProcessInfo.systemUptime.
-    private var lastControlReleaseMach: UInt64 = 0
+    private var lastControlReleaseMach: TimeInterval = 0
 
     /// Generation counter — incremented on each register() call to invalidate stale closures.
     private var generation: Int = 0
@@ -304,13 +304,15 @@ final class HotkeyService {
     /// Returns seconds from the Mach absolute time clock.
     /// Unlike `ProcessInfo.systemUptime`, this clock is monotonic and not
     /// affected by system sleep on modern macOS (10.12+).
+    private static let timebaseInfo: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
     private func machTimeSeconds() -> TimeInterval {
-        var timebase = mach_timebase_info_data_t()
-        if timebase.denom == 0 {
-            mach_timebase_info(&timebase)
-        }
         let machTime = mach_absolute_time()
-        let nanos = machTime * UInt64(timebase.numer) / UInt64(timebase.denom)
+        let nanos = machTime * UInt64(Self.timebaseInfo.numer) / UInt64(Self.timebaseInfo.denom)
         return TimeInterval(nanos) / 1_000_000_000
     }
 }

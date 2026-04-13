@@ -33,7 +33,7 @@ final class SpeechTranscriptionService: @unchecked Sendable {
     }
 
     static func requestMicrophoneAccess() async -> Bool {
-        await AVAudioApplication.requestRecordPermission()
+        await AVCaptureDevice.requestAccess(for: .audio)
     }
 
     // MARK: - Transcription

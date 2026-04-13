@@ -88,7 +88,7 @@ final class PermissionsService {
     }
 
     func requestMicrophone() async -> Bool {
-        let granted = await AVAudioApplication.requestRecordPermission()
+        let granted = await AVCaptureDevice.requestAccess(for: .audio)
         await MainActor.run { microphoneGranted = granted }
         return granted
     }

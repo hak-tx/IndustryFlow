@@ -94,7 +94,7 @@ final class SettingsViewModel {
         panel.canChooseFiles = true
         panel.allowedContentTypes = [
             UTType.commaSeparatedText,
-            UTType.tabSeparatedText,
+            UTType("public.tab-separated-values-text") ?? .plainText,
             UTType.plainText,
         ]
 
