@@ -61,14 +61,12 @@ struct MenuBarPopover: View {
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
-                    } else if let polished = appState.polishedText {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Text("Last dictation polished")
-                                    .font(.caption)
-                            }
+                    } else if appState.polishedText != nil {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Last dictation polished")
+                                .font(.caption)
                         }
                     } else if appState.isDictating {
                         HStack(spacing: 6) {
