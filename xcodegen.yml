@@ -1,0 +1,43 @@
+name: IndustryFlow
+options:
+  bundleIdPrefix: com.industryflow
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+targets:
+  IndustryFlow:
+    type: application
+    platform: macOS
+    sources:
+      - IndustryFlow
+    settings:
+      base:
+        INFOPLIST_FILE: IndustryFlow/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: IndustryFlow/Resources/IndustryFlow.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.industryflow.app
+        PRODUCT_NAME: IndustryFlow
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: "YES"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+    entitlements:
+      path: IndustryFlow/Resources/IndustryFlow.entitlements
+
+  IndustryFlowTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - IndustryFlowTests
+    dependencies:
+      - target: IndustryFlow
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.industryflow.tests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/IndustryFlow.app/Contents/MacOS/IndustryFlow"
