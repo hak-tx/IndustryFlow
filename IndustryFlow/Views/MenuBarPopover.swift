@@ -90,10 +90,10 @@ struct MenuBarPopover: View {
                 Button("Grant Microphone & Speech") {
                     Task {
                         if !permissionsService.microphoneGranted {
-                            await permissionsService.requestMicrophone()
+                            _ = await permissionsService.requestMicrophone()
                         }
                         if !permissionsService.speechRecognitionGranted {
-                            await permissionsService.requestSpeechRecognition()
+                            _ = await permissionsService.requestSpeechRecognition()
                         }
                     }
                 }
