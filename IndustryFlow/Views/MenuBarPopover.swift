@@ -91,7 +91,6 @@ struct MenuBarPopover: View {
         .buttonStyle(.borderedProminent)
         .tint(appState.isDictating ? .red : .accentColor)
         .disabled(appState.isPolishing)
-        .keyboardShortcut("d", modifiers: [.command, .shift])
     }
 
     // MARK: - Error Banner
@@ -128,7 +127,7 @@ struct MenuBarPopover: View {
 
             Spacer()
 
-            Text("\u{2318}\u{21E7}D")
+            Text("Ctrl \u{00D7}2")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 

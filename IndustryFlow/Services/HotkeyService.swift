@@ -3,41 +3,52 @@ import Carbon.HIToolbox
 import AppKit
 import os
 
+/// Detects a double-tap of the Control key to trigger dictation.
+/// Listens for flagsChanged events (modifier key press/release) and fires
+/// the callback when Control is pressed twice within a short time window.
 final class HotkeyService {
     var onHotkeyPressed: (() -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var registeredKeyCode: UInt16 = UInt16(kVK_ANSI_D)
-    private var registeredModifiers: CGEventFlags = [.maskCommand, .maskShift]
+
+    /// Maximum interval between two Control presses to count as a double-tap.
+    private let doubleTapInterval: TimeInterval = 0.4
+
+    /// Tracks the timestamp of the last Control key release.
+    private var lastControlReleaseTime: TimeInterval = 0
+
+    /// Tracks whether Control is currently held down.
+    private var controlIsDown = false
+
+    /// Guards against firing on key combos — if any other key or modifier
+    /// was pressed while Control was held, the tap is disqualified.
+    private var otherKeyDuringControl = false
 
     deinit {
         unregister()
     }
 
-    func register(keyCode: UInt16? = nil, modifiers: CGEventFlags? = nil) {
-        // Update registered combo if provided
-        if let keyCode { registeredKeyCode = keyCode }
-        if let modifiers { registeredModifiers = modifiers }
-
+    func register() {
         // Clean up any existing tap
         unregister()
 
-        // Create event tap for key down events
-        let eventMask = (1 << CGEventType.keyDown.rawValue)
+        // Listen for flagsChanged (modifier keys) AND keyDown (to detect combos)
+        let eventMask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue)
 
-        // We need to capture self in the callback. Use an Unmanaged pointer.
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: CGEventMask(eventMask),
-            callback: { _, _, event, userInfo -> Unmanaged<CGEvent>? in
+            callback: { _, type, event, userInfo -> Unmanaged<CGEvent>? in
                 guard let userInfo else { return Unmanaged.passRetained(event) }
                 let service = Unmanaged<HotkeyService>.fromOpaque(userInfo).takeUnretainedValue()
-                return service.handleEvent(event)
+                service.handleEvent(event, type: type)
+                // Always pass the event through — we never suppress modifier keys
+                return Unmanaged.passRetained(event)
             },
             userInfo: selfPointer
         ) else {
@@ -52,7 +63,7 @@ final class HotkeyService {
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
-        Logger.hotkey.info("Global hotkey registered (keyCode: \(self.registeredKeyCode))")
+        Logger.hotkey.info("Global hotkey registered (double-tap Control)")
     }
 
     func unregister() {
@@ -67,28 +78,52 @@ final class HotkeyService {
         Logger.hotkey.info("Global hotkey unregistered")
     }
 
-    private func handleEvent(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        let flags = event.flags
-
-        // Check if this matches our registered hotkey
-        let matchesKey = keyCode == registeredKeyCode
-
-        // Check modifiers (mask out device-specific bits)
-        let relevantFlags: CGEventFlags = [.maskCommand, .maskShift, .maskControl, .maskAlternate]
-        let pressedModifiers = flags.intersection(relevantFlags)
-        let targetModifiers = registeredModifiers.intersection(relevantFlags)
-        let matchesModifiers = pressedModifiers == targetModifiers
-
-        if matchesKey && matchesModifiers {
-            Logger.hotkey.debug("Hotkey pressed")
-            DispatchQueue.main.async { [weak self] in
-                self?.onHotkeyPressed?()
+    private func handleEvent(_ event: CGEvent, type: CGEventType) {
+        if type == .keyDown {
+            // A regular key was pressed while Control might be held — disqualify this tap
+            if controlIsDown {
+                otherKeyDuringControl = true
             }
-            // Suppress the event so it doesn't reach the target app
-            return nil
+            return
         }
 
-        return Unmanaged.passRetained(event)
+        // flagsChanged event — check if Control state changed
+        guard type == .flagsChanged else { return }
+
+        let flags = event.flags
+        let controlNowDown = flags.contains(.maskControl)
+
+        // Check that no other modifiers are held (Cmd, Shift, Option)
+        let otherModifiers: CGEventFlags = [.maskCommand, .maskShift, .maskAlternate]
+        let hasOtherModifiers = !flags.intersection(otherModifiers).isEmpty
+
+        if controlNowDown && !controlIsDown {
+            // Control was just pressed down
+            controlIsDown = true
+            otherKeyDuringControl = hasOtherModifiers
+        } else if !controlNowDown && controlIsDown {
+            // Control was just released
+            controlIsDown = false
+
+            // Only count as a clean tap if no other keys/modifiers were involved
+            guard !otherKeyDuringControl && !hasOtherModifiers else {
+                otherKeyDuringControl = false
+                return
+            }
+
+            let now = ProcessInfo.processInfo.systemUptime
+            let elapsed = now - lastControlReleaseTime
+
+            if elapsed < doubleTapInterval {
+                // Double-tap detected
+                Logger.hotkey.debug("Double-tap Control detected")
+                lastControlReleaseTime = 0 // Reset to prevent triple-tap re-trigger
+                DispatchQueue.main.async { [weak self] in
+                    self?.onHotkeyPressed?()
+                }
+            } else {
+                lastControlReleaseTime = now
+            }
+        }
     }
 }

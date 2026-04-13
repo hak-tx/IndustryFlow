@@ -120,7 +120,7 @@ struct DictationStatusView: View {
                     Image(systemName: "waveform")
                         .font(.title2)
                         .foregroundStyle(.secondary)
-                    Text("Press Start or \u{2318}\u{21E7}D to begin dictating")
+                    Text("Press Start or double-tap Control to begin dictating")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

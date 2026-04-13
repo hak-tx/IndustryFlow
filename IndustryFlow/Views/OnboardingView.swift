@@ -214,7 +214,7 @@ struct OnboardingView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
 
-            Text("Press \u{2318}\u{21E7}D anywhere to start dictating.")
+            Text("Double-tap Control anywhere to start dictating.")
                 .font(.body)
                 .foregroundStyle(.secondary)
         }

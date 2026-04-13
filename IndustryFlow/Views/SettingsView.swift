@@ -53,12 +53,19 @@ struct SettingsView: View {
                 HStack {
                     Text("Toggle Dictation:")
                     Spacer()
-                    Text("\u{2318}\u{21E7}D")
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+                    HStack(spacing: 4) {
+                        Text("Control")
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 4))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+                        Text("\u{00D7}2")
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Text("Tap the Control key twice quickly to start or stop dictation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Default Industry") {
