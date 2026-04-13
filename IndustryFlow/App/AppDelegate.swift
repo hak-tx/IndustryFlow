@@ -32,6 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkFirstLaunch()
 
         Logger.app.info("IndustryFlow ready")
+
+        // On first launch, show the popover immediately so the user sees the onboarding
+        if appState.showOnboarding {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showPopover()
+            }
+        }
     }
 
     // MARK: - Status Bar Item
@@ -70,33 +77,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         popover.contentViewController = NSHostingController(rootView: contentView)
         self.popover = popover
+    }
 
-        // Close popover when user clicks outside
+    private func showPopover() {
+        guard let popover, let button = statusItem?.button else { return }
+        guard !popover.isShown else { return }
+
+        permissionsService.refreshStatus()
+
+        // CRITICAL: For LSUIElement (menu bar only) apps, the app must be
+        // activated for the popover to receive mouse/keyboard input.
+        // Without this, the popover appears but all controls are dead.
+        NSApp.activate(ignoringOtherApps: true)
+
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+
+        // Install click-outside monitor only while popover is shown
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            if let popover = self?.popover, popover.isShown {
-                popover.performClose(nil)
-            }
+            self?.closePopover()
+        }
+    }
+
+    private func closePopover() {
+        popover?.performClose(nil)
+
+        // Remove the click-outside monitor when popover closes
+        if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickOutsideMonitor = nil
         }
     }
 
     @objc private func togglePopover() {
-        guard let popover, let button = statusItem?.button else { return }
+        guard let popover else { return }
 
         if popover.isShown {
-            popover.performClose(nil)
+            closePopover()
         } else {
-            permissionsService.refreshStatus()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            showPopover()
         }
     }
 
     // MARK: - Hotkey Setup
 
-    /// Registers the hotkey service if accessibility is available, otherwise
-    /// defers registration to when permission is granted (via notifications).
     private func setupHotkey() {
         hotkeyService.onHotkeyPressed = { [weak self] in
             self?.handleHotkeyTrigger()
@@ -119,11 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.toggleDictation()
             updateMenuBarIcon()
 
-            // Show popover briefly when recording starts
-            if appState.isDictating,
-               let button = statusItem?.button,
-               !(popover?.isShown ?? false) {
-                popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            if appState.isDictating {
+                showPopover()
             }
         }
     }
@@ -139,10 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Permission Change Monitoring
 
-    /// Listens for permission changes from both PermissionsService and HotkeyService.
-    /// Single coordination point — no duplicate polling.
     private func observePermissionChanges() {
-        // When accessibility is restored, register the hotkey
         let restoredObserver = NotificationCenter.default.addObserver(
             forName: .hotkeyPermissionRestored,
             object: nil,
@@ -155,14 +174,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.hotkeyService.register()
             }
 
-            // Clear any permission warning from the UI
             if self.appState.errorMessage?.contains("Accessibility") == true {
                 self.appState.clearError()
             }
         }
         permissionObservers.append(restoredObserver)
 
-        // When accessibility is lost, alert the user
         let lostObserver = NotificationCenter.default.addObserver(
             forName: .hotkeyPermissionLost,
             object: nil,
@@ -177,10 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             System Settings > Privacy & Security > Accessibility.
             """
 
-            // Show the popover so the user sees the warning
-            if let button = self.statusItem?.button, !(self.popover?.isShown ?? false) {
-                self.popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            }
+            self.showPopover()
         }
         permissionObservers.append(lostObserver)
     }
@@ -194,20 +208,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appState.showOnboarding = true
         }
 
-        // Load saved profile
         if let profileID = UserDefaults.standard.string(forKey: "selectedProfileID"),
            let profile = IndustryProfile.allProfiles.first(where: { $0.id == profileID }) {
             appState.selectedProfile = profile
         }
     }
 
-    /// Registers IndustryFlow as a Login Item so it launches automatically on boot.
-    /// Uses SMAppService (macOS 13+) — the modern, App Store-compatible API.
     static func registerLoginItem() {
         if #available(macOS 13.0, *) {
-            let service = SMAppService.mainApp
             do {
-                try service.register()
+                try SMAppService.mainApp.register()
                 Logger.app.info("Registered as login item")
             } catch {
                 Logger.app.error("Failed to register login item: \(error.localizedDescription)")
@@ -217,9 +227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     static func unregisterLoginItem() {
         if #available(macOS 13.0, *) {
-            let service = SMAppService.mainApp
             do {
-                try service.unregister()
+                try SMAppService.mainApp.unregister()
                 Logger.app.info("Unregistered login item")
             } catch {
                 Logger.app.error("Failed to unregister login item: \(error.localizedDescription)")
