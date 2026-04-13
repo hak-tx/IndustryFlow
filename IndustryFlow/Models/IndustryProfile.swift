@@ -29,13 +29,36 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         correspondence, memoranda, or contracts. Preserve the original meaning precisely.
         """,
         vocabularyHints: [
-            "estoppel", "indemnification", "tortfeasor", "mens rea", "actus reus",
-            "habeas corpus", "subpoena", "deposition", "affidavit", "jurisprudence",
-            "adjudication", "arbitration", "plaintiff", "defendant", "appellant",
-            "respondent", "amicus curiae", "pro bono", "prima facie", "fiduciary",
-            "injunction", "litigation", "statute", "precedent", "jurisdiction",
-            "tort", "breach", "negligence", "liability", "damages", "remedy",
-            "stipulation", "covenant", "lien", "collateral", "escrow"
+            // Latin terms (most mangled by recognizers)
+            "estoppel", "mens rea", "actus reus", "habeas corpus", "subpoena",
+            "amicus curiae", "pro bono", "prima facie", "res judicata", "stare decisis",
+            "voir dire", "certiorari", "mandamus", "de facto", "de jure",
+            "ex parte", "in camera", "nolo contendere", "pro se", "quid pro quo",
+            "bona fide", "inter alia", "modus operandi", "ipso facto", "ad hoc",
+            "sui generis", "ultra vires", "ab initio", "caveat emptor",
+            // Parties & roles
+            "plaintiff", "defendant", "appellant", "respondent", "petitioner",
+            "complainant", "litigant", "counsel", "co-counsel", "paralegal",
+            "deponent", "affiant", "witness", "expert witness", "mediator",
+            "arbitrator", "adjudicator", "magistrate", "bailiff",
+            // Documents & filings
+            "affidavit", "deposition", "interrogatories", "subpoena duces tecum",
+            "complaint", "answer", "counterclaim", "cross-claim", "motion",
+            "brief", "memorandum", "stipulation", "pleading", "discovery",
+            "exhibit", "addendum", "codicil", "retainer", "engagement letter",
+            // Concepts
+            "indemnification", "tortfeasor", "jurisprudence", "adjudication",
+            "arbitration", "injunction", "litigation", "statute", "precedent",
+            "jurisdiction", "tort", "breach", "negligence", "liability", "damages",
+            "remedy", "covenant", "lien", "collateral", "escrow", "fiduciary",
+            "due process", "standing", "venue", "cause of action", "burden of proof",
+            "preponderance", "beyond reasonable doubt", "mitigating", "aggravating",
+            "malfeasance", "misfeasance", "nonfeasance", "proximate cause",
+            "statute of limitations", "double jeopardy", "eminent domain",
+            "intellectual property", "trade secret", "non-compete", "NDA",
+            "force majeure", "liquidated damages", "punitive damages",
+            "class action", "summary judgment", "default judgment",
+            "settlement", "mediation", "plea bargain", "arraignment"
         ]
     )
 
@@ -51,13 +74,36 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         for financial reports, memos, or correspondence.
         """,
         vocabularyHints: [
-            "GAAP", "IFRS", "amortization", "depreciation", "accrual", "deferral",
-            "accounts receivable", "accounts payable", "general ledger", "trial balance",
-            "balance sheet", "income statement", "cash flow", "equity", "liability",
-            "asset", "journal entry", "reconciliation", "audit", "compliance",
-            "fiduciary", "fiscal year", "quarterly", "EBITDA", "ROI", "ROE",
-            "capitalization", "write-off", "provision", "contingency", "goodwill",
-            "revenue recognition", "cost of goods sold", "gross margin", "net income"
+            // Standards & frameworks
+            "GAAP", "IFRS", "SOX", "Sarbanes-Oxley", "FASB", "AICPA", "PCAOB",
+            "ASC 606", "ASC 842", "GASB", "SEC", "10-K", "10-Q", "8-K",
+            // Core accounting
+            "amortization", "depreciation", "accrual", "deferral", "accrual basis",
+            "cash basis", "double entry", "debit", "credit", "T-account",
+            "accounts receivable", "accounts payable", "general ledger", "subledger",
+            "trial balance", "chart of accounts", "journal entry", "adjusting entry",
+            "closing entry", "reconciliation", "bank reconciliation",
+            // Financial statements
+            "balance sheet", "income statement", "cash flow statement",
+            "statement of equity", "retained earnings", "comprehensive income",
+            "working capital", "current ratio", "quick ratio", "debt-to-equity",
+            // Metrics & ratios
+            "EBITDA", "EBIT", "ROI", "ROE", "ROA", "EPS", "P/E ratio",
+            "gross margin", "net margin", "operating margin", "free cash flow",
+            "revenue recognition", "cost of goods sold", "COGS", "SG&A",
+            "overhead", "variable cost", "fixed cost", "marginal cost",
+            "break-even", "contribution margin", "net income", "gross profit",
+            // Tax & audit
+            "audit", "compliance", "internal controls", "material weakness",
+            "qualified opinion", "unqualified opinion", "going concern",
+            "deferred tax", "tax liability", "tax provision", "withholding",
+            "W-2", "W-9", "1099", "1040", "Schedule C", "Schedule K-1",
+            "capital gains", "ordinary income", "AMT", "NOL", "carryforward",
+            // Corporate finance
+            "capitalization", "write-off", "write-down", "impairment",
+            "provision", "contingency", "goodwill", "intangible asset",
+            "fiduciary", "fiscal year", "fiscal quarter", "year over year",
+            "budget variance", "forecast", "pro forma", "cap table", "dilution"
         ]
     )
 
@@ -72,13 +118,35 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         measurements, units, tolerances, and technical specifications.
         """,
         vocabularyHints: [
-            "tolerance", "specification", "CAD", "FEA", "finite element", "torque",
-            "tensile strength", "yield strength", "fatigue", "stress analysis",
-            "thermodynamics", "kinematics", "dynamics", "fluid mechanics", "hydraulics",
-            "pneumatics", "schematic", "blueprint", "prototype", "iteration",
-            "commissioning", "decommissioning", "calibration", "compliance",
-            "load bearing", "structural integrity", "coefficient", "Reynolds number",
-            "Bernoulli", "elasticity", "modulus", "alloy", "composite"
+            // HVAC & mechanical
+            "HVAC", "BTU", "CFM", "SEER", "EER", "AFUE", "tonnage", "refrigerant",
+            "R-410A", "R-22", "compressor", "condenser", "evaporator", "ductwork",
+            "air handler", "thermostat", "heat pump", "chiller", "boiler", "furnace",
+            "damper", "plenum", "diffuser", "return air", "supply air", "makeup air",
+            "static pressure", "delta T", "superheat", "subcooling", "enthalpy",
+            // Structural & civil
+            "structural", "load bearing", "dead load", "live load", "wind load",
+            "seismic", "moment", "shear force", "bending moment", "deflection",
+            "reinforced concrete", "prestressed", "post-tensioned", "I-beam", "W-flange",
+            "HSS", "rebar", "aggregate", "PSI", "compressive strength",
+            // Design & analysis
+            "CAD", "CAM", "CAE", "FEA", "finite element", "CFD", "SolidWorks",
+            "AutoCAD", "Revit", "CATIA", "Inventor", "Fusion 360", "BIM",
+            "tolerance", "GD&T", "specification", "bill of materials", "BOM",
+            "schematic", "blueprint", "prototype", "iteration", "design review",
+            // Materials & properties
+            "tensile strength", "yield strength", "fatigue", "creep", "hardness",
+            "elasticity", "modulus", "Young's modulus", "Poisson's ratio",
+            "alloy", "composite", "carbon fiber", "fiberglass", "stainless steel",
+            "galvanized", "anodized", "tempered", "quenched",
+            // Physics & thermo
+            "thermodynamics", "kinematics", "dynamics", "fluid mechanics",
+            "hydraulics", "pneumatics", "Bernoulli", "Reynolds number",
+            "laminar", "turbulent", "viscosity", "coefficient of friction",
+            "torque", "RPM", "horsepower", "kilowatt", "megapascal",
+            // Process
+            "commissioning", "decommissioning", "calibration", "P&ID",
+            "ISO", "ASME", "ANSI", "ASTM", "IEEE", "NFPA", "UL"
         ]
     )
 
@@ -94,13 +162,39 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         formulas, equations, units, and measurements.
         """,
         vocabularyHints: [
-            "hypothesis", "methodology", "empirical", "quantitative", "qualitative",
-            "peer review", "reproducibility", "statistical significance", "p-value",
-            "standard deviation", "control group", "variable", "correlation", "causation",
-            "spectroscopy", "chromatography", "centrifuge", "titration", "reagent",
-            "catalyst", "substrate", "isotope", "molecule", "polymer", "genome",
-            "phenotype", "genotype", "mitochondria", "photosynthesis", "entropy",
-            "thermodynamic", "kinetic", "equilibrium", "molar", "molarity"
+            // Research methodology
+            "hypothesis", "null hypothesis", "methodology", "empirical", "theoretical",
+            "quantitative", "qualitative", "longitudinal", "cross-sectional",
+            "meta-analysis", "systematic review", "peer review", "reproducibility",
+            "double-blind", "placebo", "control group", "experimental group",
+            "independent variable", "dependent variable", "confounding variable",
+            // Statistics
+            "statistical significance", "p-value", "confidence interval",
+            "standard deviation", "variance", "mean", "median", "regression",
+            "ANOVA", "chi-square", "t-test", "F-test", "Bayesian",
+            "correlation", "causation", "coefficient", "R-squared",
+            "sample size", "power analysis", "effect size", "outlier",
+            // Chemistry
+            "spectroscopy", "chromatography", "mass spectrometry", "NMR",
+            "centrifuge", "titration", "reagent", "catalyst", "substrate",
+            "isotope", "molecule", "polymer", "monomer", "covalent", "ionic",
+            "molar", "molarity", "mole", "Avogadro", "stoichiometry",
+            "pH", "buffer", "solute", "solvent", "precipitate", "distillation",
+            // Biology
+            "genome", "proteome", "phenotype", "genotype", "allele",
+            "mitochondria", "ribosome", "cytoplasm", "nucleus", "membrane",
+            "DNA", "RNA", "mRNA", "CRISPR", "PCR", "gel electrophoresis",
+            "in vitro", "in vivo", "in silico", "cell culture", "assay",
+            "antibody", "antigen", "enzyme", "protein", "amino acid",
+            // Physics
+            "photosynthesis", "entropy", "enthalpy", "thermodynamic", "kinetic",
+            "equilibrium", "quantum", "wavelength", "frequency", "amplitude",
+            "Planck", "Heisenberg", "Schrödinger", "Bohr", "Coulomb",
+            "electromagnetic", "photon", "electron", "neutron", "proton",
+            // Publication
+            "abstract", "introduction", "methods", "results", "discussion",
+            "conclusion", "supplementary", "citation", "DOI", "impact factor",
+            "preprint", "arXiv", "bioRxiv", "PubMed", "Nature", "Science"
         ]
     )
 
@@ -116,13 +210,37 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         with clear points and actionable items where appropriate.
         """,
         vocabularyHints: [
-            "KPI", "ROI", "stakeholder", "deliverable", "milestone", "scalability",
-            "synergy", "leverage", "bandwidth", "pipeline", "onboarding", "offboarding",
-            "quarterly review", "fiscal quarter", "P&L", "bottom line", "top line",
-            "year over year", "market share", "competitive advantage", "value proposition",
-            "core competency", "strategic initiative", "operational efficiency",
-            "change management", "risk mitigation", "due diligence", "SWOT analysis",
-            "benchmarking", "SLA", "OKR", "agile", "lean", "Six Sigma"
+            // Metrics & KPIs
+            "KPI", "OKR", "ROI", "ROE", "ROA", "CAGR", "MRR", "ARR", "LTV",
+            "CAC", "NPS", "CSAT", "churn", "attrition", "retention rate",
+            "gross margin", "net margin", "EBITDA", "run rate", "burn rate",
+            // Strategy & planning
+            "SWOT analysis", "PESTLE", "Porter's Five Forces", "BCG matrix",
+            "competitive advantage", "value proposition", "core competency",
+            "strategic initiative", "mission statement", "vision statement",
+            "go-to-market", "GTM", "TAM", "SAM", "SOM", "market share",
+            "blue ocean", "red ocean", "first mover", "moat", "pivot",
+            // Operations
+            "P&L", "profit and loss", "bottom line", "top line", "revenue",
+            "operational efficiency", "scalability", "throughput", "utilization",
+            "lean", "Six Sigma", "Kaizen", "DMAIC", "value stream",
+            "SLA", "service level agreement", "SOP", "standard operating procedure",
+            // Management
+            "stakeholder", "deliverable", "milestone", "roadmap", "backlog",
+            "bandwidth", "pipeline", "funnel", "onboarding", "offboarding",
+            "change management", "risk mitigation", "due diligence",
+            "cross-functional", "matrix organization", "flat organization",
+            "span of control", "delegation", "empowerment", "accountability",
+            // Finance & reporting
+            "fiscal quarter", "fiscal year", "year over year", "YoY",
+            "quarter over quarter", "QoQ", "month over month", "MoM",
+            "budget variance", "forecast", "pro forma", "working capital",
+            "capex", "opex", "headcount", "FTE", "full-time equivalent",
+            // Agile & project management
+            "agile", "scrum", "kanban", "sprint", "standup", "retrospective",
+            "epic", "user story", "story points", "velocity", "burndown",
+            "product owner", "scrum master", "backlog grooming", "Jira",
+            "Gantt chart", "critical path", "WBS", "work breakdown structure"
         ]
     )
 
@@ -138,13 +256,39 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         proposals, pitches, campaigns, or client communications.
         """,
         vocabularyHints: [
-            "conversion rate", "click-through rate", "CTR", "CPA", "CPM", "CPC",
-            "lead generation", "lead nurturing", "funnel", "pipeline", "prospect",
-            "outreach", "cold call", "warm lead", "qualified lead", "MQL", "SQL",
-            "upsell", "cross-sell", "churn rate", "retention", "engagement",
+            // Digital marketing metrics
+            "CTR", "click-through rate", "CPA", "cost per acquisition",
+            "CPM", "cost per mille", "CPC", "cost per click",
+            "ROAS", "return on ad spend", "ROI", "conversion rate",
+            "bounce rate", "session duration", "page views", "impressions",
+            "reach", "frequency", "engagement rate", "open rate",
+            // Sales pipeline
+            "lead generation", "lead nurturing", "lead scoring", "funnel",
+            "pipeline", "prospect", "outreach", "cold call", "warm lead",
+            "qualified lead", "MQL", "SQL", "SAL", "opportunity",
+            "discovery call", "demo", "proposal", "close rate", "win rate",
+            "upsell", "cross-sell", "churn rate", "retention", "renewal",
+            "ARR", "MRR", "ACV", "TCV", "quota", "attainment",
+            "territory", "account executive", "AE", "SDR", "BDR",
+            // Marketing strategy
             "brand awareness", "market penetration", "segmentation", "persona",
-            "value proposition", "call to action", "A/B testing", "attribution",
-            "omnichannel", "content marketing", "SEO", "SEM", "PPC", "ROAS"
+            "buyer journey", "awareness", "consideration", "decision",
+            "value proposition", "unique selling proposition", "USP",
+            "positioning", "differentiation", "go-to-market", "GTM",
+            "TAM", "SAM", "SOM", "market fit", "product market fit",
+            // Channels & tactics
+            "SEO", "SEM", "PPC", "organic", "paid media", "earned media",
+            "content marketing", "inbound", "outbound", "ABM", "account-based",
+            "email marketing", "drip campaign", "nurture sequence",
+            "social media", "influencer", "UGC", "user-generated content",
+            "webinar", "whitepaper", "case study", "testimonial",
+            "call to action", "CTA", "landing page", "squeeze page",
+            "A/B testing", "multivariate", "attribution", "multi-touch",
+            "omnichannel", "retargeting", "remarketing", "lookalike audience",
+            // Tools & platforms
+            "CRM", "Salesforce", "HubSpot", "Marketo", "Pardot",
+            "Google Analytics", "GA4", "Google Ads", "Meta Ads", "LinkedIn Ads",
+            "Mailchimp", "Klaviyo", "Shopify", "WordPress", "Webflow"
         ]
     )
 
@@ -209,13 +353,38 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         format component values, pin configurations, and electrical units.
         """,
         vocabularyHints: [
-            "PCB", "printed circuit board", "schematic", "FPGA", "ASIC", "microcontroller",
-            "GPIO", "SPI", "I2C", "UART", "USB", "Ethernet", "resistor", "capacitor",
-            "inductor", "transistor", "MOSFET", "op-amp", "oscilloscope", "multimeter",
-            "voltage regulator", "power supply", "DC-DC converter", "ADC", "DAC",
-            "firmware", "embedded", "real-time", "interrupt", "DMA", "clock speed",
-            "bandwidth", "impedance", "oscillator", "crystal", "BOM", "footprint",
-            "through-hole", "surface mount", "SMD", "soldering", "reflow"
+            // Components
+            "resistor", "capacitor", "inductor", "transistor", "diode", "LED",
+            "MOSFET", "IGBT", "BJT", "op-amp", "comparator", "regulator",
+            "relay", "solenoid", "transformer", "fuse", "varistor", "thyristor",
+            "crystal oscillator", "ceramic resonator", "ferrite bead",
+            // ICs & processors
+            "FPGA", "ASIC", "SoC", "MCU", "microcontroller", "microprocessor",
+            "ARM", "RISC-V", "x86", "DSP", "GPU", "CPLD",
+            "Arduino", "Raspberry Pi", "ESP32", "STM32", "PIC", "AVR",
+            // Interfaces & protocols
+            "GPIO", "SPI", "I2C", "UART", "USB", "USB-C", "JTAG", "SWD",
+            "Ethernet", "CAN bus", "RS-232", "RS-485", "Modbus", "HDMI",
+            "PCIe", "SDIO", "MIPI", "LVDS", "I2S", "PWM", "analog",
+            // PCB & manufacturing
+            "PCB", "printed circuit board", "schematic", "layout", "Gerber",
+            "BOM", "bill of materials", "footprint", "land pattern",
+            "through-hole", "THT", "surface mount", "SMT", "SMD",
+            "soldering", "reflow", "wave solder", "pick and place",
+            "via", "trace", "copper pour", "ground plane", "impedance control",
+            "DRC", "design rule check", "ERC", "electrical rule check",
+            // Test & measurement
+            "oscilloscope", "multimeter", "logic analyzer", "spectrum analyzer",
+            "signal generator", "power supply", "bench supply",
+            "ADC", "DAC", "SNR", "THD", "bandwidth", "sample rate",
+            "Nyquist", "aliasing", "decibel", "dBm", "eye diagram",
+            // Firmware & embedded
+            "firmware", "embedded", "RTOS", "real-time", "interrupt", "ISR",
+            "DMA", "watchdog", "bootloader", "flash memory", "EEPROM",
+            "clock speed", "MHz", "GHz", "baud rate", "bit rate",
+            // Design tools
+            "KiCad", "Altium", "Eagle", "OrCAD", "LTspice", "SPICE",
+            "EDA", "Mentor Graphics", "Cadence", "Zuken"
         ]
     )
 
@@ -230,14 +399,38 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         specifications. Use proper units, tolerances, and technical terms.
         """,
         vocabularyHints: [
-            "CNC", "injection molding", "die casting", "extrusion", "stamping",
-            "tolerance", "GD&T", "geometric dimensioning", "quality control", "QA",
-            "ISO 9001", "lean manufacturing", "Six Sigma", "Kaizen", "5S",
+            // Processes
+            "CNC", "injection molding", "blow molding", "rotational molding",
+            "die casting", "sand casting", "investment casting", "lost wax",
+            "extrusion", "stamping", "forging", "welding", "MIG", "TIG", "arc",
+            "laser cutting", "waterjet", "EDM", "wire EDM", "broaching",
+            "turning", "milling", "drilling", "grinding", "honing", "lapping",
+            "3D printing", "additive manufacturing", "SLA", "FDM", "SLS", "DMLS",
+            // Quality
+            "GD&T", "geometric dimensioning and tolerancing", "tolerance",
+            "quality control", "QC", "quality assurance", "QA",
+            "ISO 9001", "ISO 14001", "IATF 16949", "AS9100",
+            "first article inspection", "FAI", "PPAP", "APQP", "FMEA",
+            "SPC", "statistical process control", "control chart", "Cpk", "Ppk",
+            "CMM", "coordinate measuring machine", "gauge R&R", "calibration",
+            // Lean & continuous improvement
+            "lean manufacturing", "Six Sigma", "Kaizen", "5S", "Kanban",
+            "value stream mapping", "VSM", "DMAIC", "PDCA", "poka-yoke",
+            "andon", "gemba", "muda", "muri", "mura", "heijunka",
+            "just in time", "JIT", "single piece flow", "bottleneck",
+            // Production
             "bill of materials", "BOM", "work order", "batch", "lot number",
-            "first article inspection", "FAI", "SPC", "statistical process control",
-            "yield rate", "scrap rate", "cycle time", "takt time", "throughput",
-            "OEE", "preventive maintenance", "tooling", "fixture", "jig",
-            "heat treatment", "annealing", "tempering", "hardness", "Rockwell"
+            "yield rate", "scrap rate", "rework", "cycle time", "takt time",
+            "throughput", "OEE", "overall equipment effectiveness",
+            "downtime", "changeover", "setup time", "run time",
+            "preventive maintenance", "PM", "predictive maintenance",
+            "TPM", "total productive maintenance", "MTBF", "MTTR",
+            // Materials
+            "tooling", "fixture", "jig", "die", "mold", "punch",
+            "heat treatment", "annealing", "tempering", "hardening",
+            "quenching", "carburizing", "nitriding", "case hardening",
+            "hardness", "Rockwell", "Brinell", "Vickers", "Shore",
+            "tensile", "yield", "elongation", "ductility", "brittleness"
         ]
     )
 
@@ -252,15 +445,43 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         construction terms, measurement units, and building codes references.
         """,
         vocabularyHints: [
-            "RFI", "request for information", "submittal", "change order", "punch list",
-            "general contractor", "subcontractor", "superintendent", "foreman",
-            "concrete", "rebar", "formwork", "shoring", "excavation", "grading",
-            "foundation", "footing", "slab", "framing", "drywall", "HVAC",
-            "mechanical", "electrical", "plumbing", "MEP", "structural", "load bearing",
-            "building code", "IBC", "ADA", "OSHA", "safety", "PPE",
-            "schedule", "critical path", "Gantt chart", "retainage", "lien waiver",
-            "bid", "estimate", "scope of work", "specifications", "blueprints",
-            "as-built", "shop drawing", "elevation", "section", "detail"
+            // Project documents
+            "RFI", "request for information", "submittal", "transmittal",
+            "change order", "CO", "punch list", "closeout", "substantial completion",
+            "notice to proceed", "NTP", "certificate of occupancy", "CO",
+            "as-built", "shop drawing", "elevation", "section", "detail",
+            "specifications", "spec book", "Division 1", "CSI", "MasterFormat",
+            // Contracts & finance
+            "bid", "estimate", "proposal", "scope of work", "SOW",
+            "GMP", "guaranteed maximum price", "lump sum", "cost plus",
+            "retainage", "lien waiver", "AIA", "pay application",
+            "liquidated damages", "bonding", "surety", "performance bond",
+            "prevailing wage", "Davis-Bacon", "certified payroll",
+            // Roles
+            "general contractor", "GC", "subcontractor", "sub",
+            "superintendent", "foreman", "project manager", "PM",
+            "owner's rep", "architect", "structural engineer",
+            "geotechnical", "surveyor", "inspector",
+            // Structural & site
+            "concrete", "rebar", "formwork", "shoring", "scaffolding",
+            "excavation", "grading", "backfill", "compaction", "dewatering",
+            "foundation", "footing", "pile", "caisson", "grade beam",
+            "slab on grade", "post-tension", "tilt-up", "precast",
+            "framing", "stud", "joist", "truss", "header", "beam", "column",
+            // Trades & systems
+            "HVAC", "mechanical", "electrical", "plumbing", "MEP",
+            "fire protection", "sprinkler", "fire alarm", "low voltage",
+            "drywall", "finish", "millwork", "casework", "flooring",
+            "roofing", "waterproofing", "cladding", "curtain wall", "glazing",
+            "insulation", "R-value", "vapor barrier", "flashing",
+            // Codes & safety
+            "building code", "IBC", "IRC", "NEC", "NFPA", "ADA",
+            "OSHA", "safety", "PPE", "fall protection", "SWPPP",
+            "stormwater", "erosion control", "environmental", "LEED",
+            // Scheduling
+            "critical path", "CPM", "Gantt chart", "baseline schedule",
+            "float", "slack", "milestone", "predecessor", "successor",
+            "Primavera", "P6", "Procore", "Bluebeam", "PlanGrid"
         ]
     )
 
@@ -275,15 +496,51 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
         medical abbreviations and terminology. Maintain HIPAA-compliant language practices.
         """,
         vocabularyHints: [
-            "diagnosis", "prognosis", "etiology", "pathology", "symptom", "syndrome",
-            "chronic", "acute", "benign", "malignant", "contraindication", "comorbidity",
-            "differential diagnosis", "chief complaint", "history of present illness",
-            "review of systems", "physical examination", "assessment", "plan",
-            "prescription", "dosage", "milligrams", "intravenous", "subcutaneous",
-            "intramuscular", "bilateral", "anterior", "posterior", "lateral", "medial",
-            "proximal", "distal", "hypertension", "hypotension", "tachycardia",
-            "bradycardia", "edema", "inflammation", "CBC", "BMP", "MRI", "CT scan",
-            "EKG", "ECG", "EMR", "EHR", "ICD-10", "CPT", "HIPAA"
+            // Clinical documentation
+            "chief complaint", "CC", "history of present illness", "HPI",
+            "review of systems", "ROS", "physical examination", "PE",
+            "assessment and plan", "A&P", "differential diagnosis", "DDx",
+            "subjective", "objective", "SOAP note", "progress note",
+            "discharge summary", "operative report", "consultation",
+            // Diagnoses & conditions
+            "diagnosis", "prognosis", "etiology", "pathology", "pathogenesis",
+            "symptom", "syndrome", "chronic", "acute", "subacute",
+            "benign", "malignant", "metastatic", "idiopathic", "iatrogenic",
+            "contraindication", "comorbidity", "sequela", "exacerbation",
+            "remission", "relapse", "prodromal", "asymptomatic",
+            // Anatomy & positioning
+            "bilateral", "unilateral", "anterior", "posterior", "lateral",
+            "medial", "proximal", "distal", "superior", "inferior",
+            "dorsal", "ventral", "supine", "prone", "contralateral",
+            "ipsilateral", "subcutaneous", "intramuscular", "intravenous",
+            "sublingual", "intrathecal", "epidural", "transdermal",
+            // Vitals & conditions
+            "hypertension", "hypotension", "tachycardia", "bradycardia",
+            "tachypnea", "dyspnea", "hypoxia", "cyanosis", "diaphoresis",
+            "edema", "inflammation", "necrosis", "ischemia", "hemorrhage",
+            "embolism", "thrombosis", "aneurysm", "stenosis", "fibrillation",
+            // Medications
+            "prescription", "Rx", "dosage", "milligrams", "mg", "mcg",
+            "PRN", "BID", "TID", "QID", "QHS", "PO", "IV", "IM", "SQ",
+            "titrate", "taper", "loading dose", "maintenance dose",
+            "contraindicated", "adverse reaction", "anaphylaxis",
+            // Labs & diagnostics
+            "CBC", "complete blood count", "BMP", "CMP", "lipid panel",
+            "hemoglobin", "hematocrit", "WBC", "platelet", "creatinine",
+            "BUN", "troponin", "procalcitonin", "TSH", "HbA1c", "INR",
+            "MRI", "CT scan", "X-ray", "ultrasound", "PET scan",
+            "EKG", "ECG", "echocardiogram", "EEG", "EMG",
+            "biopsy", "cytology", "histology", "culture", "sensitivity",
+            // Systems & compliance
+            "EMR", "EHR", "CPOE", "HL7", "FHIR",
+            "ICD-10", "CPT", "HCPCS", "DRG", "RVU",
+            "HIPAA", "PHI", "protected health information",
+            "meaningful use", "MIPS", "MACRA", "value-based care",
+            // Specialties
+            "cardiology", "pulmonology", "neurology", "orthopedics",
+            "gastroenterology", "endocrinology", "nephrology", "oncology",
+            "pediatrics", "geriatrics", "psychiatry", "dermatology",
+            "ophthalmology", "otolaryngology", "ENT", "radiology", "pathology"
         ]
     )
 
