@@ -373,7 +373,7 @@ struct SettingsView: View {
 
             Image(systemName: "waveform")
                 .font(.system(size: 48))
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             Text("IndustryFlow")
                 .font(.title2)

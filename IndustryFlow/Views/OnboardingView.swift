@@ -85,7 +85,7 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             Image(systemName: "mic.fill")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             Text("Microphone Access")
                 .font(.title3)
@@ -112,7 +112,7 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             Image(systemName: "waveform")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             Text("Speech Recognition")
                 .font(.title3)
@@ -139,7 +139,7 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             Image(systemName: "universal.access")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             Text("Accessibility Access")
                 .font(.title3)
@@ -174,7 +174,7 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             Image(systemName: "key.fill")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             Text("Anthropic API Key")
                 .font(.title3)
@@ -213,7 +213,7 @@ struct OnboardingView: View {
         VStack(spacing: 16) {
             Image(systemName: "power")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             Text("Launch at Login")
                 .font(.title3)

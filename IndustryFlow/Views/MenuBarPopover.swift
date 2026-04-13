@@ -58,7 +58,7 @@ struct MenuBarPopover: View {
     private var header: some View {
         HStack {
             Image(systemName: "waveform")
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
             Text("IndustryFlow")
                 .font(.headline)
             Spacer()
