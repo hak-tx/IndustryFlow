@@ -109,31 +109,37 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         startRecognitionRequest()
     }
 
+    private var isOnDevice = false
+
     private func startRecognitionRequest() {
         isChaining = false
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
+        // Keep the recognition task alive even after long pauses
+        request.addsPunctuation = true
 
         if !savedVocabularyHints.isEmpty {
             request.contextualStrings = savedVocabularyHints
         }
 
-        // On-device recognition has NO time limit (no 1-minute cap).
-        // This eliminates the need for chaining entirely.
+        // On-device recognition has NO time limit.
+        // When on-device, we NEVER chain — one request runs the entire session.
         if #available(macOS 13.0, *) {
             if speechRecognizer?.supportsOnDeviceRecognition == true {
                 request.requiresOnDeviceRecognition = true
-                Logger.transcription.info("Using on-device recognition (no time limit)")
+                isOnDevice = true
+                Logger.transcription.info("Using on-device recognition (no time limit, no chaining)")
             } else {
-                Logger.transcription.info("On-device not available, using server (1-min limit, will chain)")
+                isOnDevice = false
+                Logger.transcription.info("On-device not available, using server")
             }
         }
 
         self.recognitionRequest = request
 
-        // Replay any audio buffers captured during the chain gap
+        // Replay any audio buffers captured during a chain gap
         if !pendingBuffers.isEmpty {
             Logger.transcription.info("Replaying \(self.pendingBuffers.count) buffered audio frames")
             for buffer in pendingBuffers {
@@ -155,10 +161,11 @@ final class SpeechTranscriptionService: @unchecked Sendable {
                     self.accumulatedTranscript += text
                     self.continuation?.yield(.final_(self.accumulatedTranscript))
 
-                    // Chain a new request if still running
-                    // (only needed for server-based recognition hitting the 1-min limit)
-                    if self.isRunning {
-                        Logger.transcription.info("Final result received, chaining new request")
+                    // Only chain for server-based recognition (has 1-min limit).
+                    // On-device: do NOT chain. The recognizer will start a new
+                    // utterance automatically within the same task.
+                    if self.isRunning && !self.isOnDevice {
+                        Logger.transcription.info("Server mode: chaining new request after final")
                         self.chainNewRequest()
                     }
                 } else {
@@ -174,16 +181,17 @@ final class SpeechTranscriptionService: @unchecked Sendable {
             if let error {
                 let nsError = error as NSError
 
-                // Ignore errors during chaining — the old task is being torn down
                 if self.isChaining {
                     Logger.transcription.debug("Ignoring error during chain: \(nsError.code)")
                     return
                 }
 
-                if self.isRunning {
-                    Logger.transcription.info("Recognition error (\(nsError.code)), attempting recovery")
-                    self.chainNewRequest()
-                }
+                guard self.isRunning else { return }
+
+                // On-device mode: the task ended (timeout, no speech detected, etc.)
+                // Restart seamlessly — accumulate what we have, start fresh.
+                Logger.transcription.info("Recognition ended (\(nsError.domain) \(nsError.code)), restarting")
+                self.chainNewRequest()
             }
         }
     }
