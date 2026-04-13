@@ -1,22 +1,25 @@
 import AppKit
 import SwiftUI
+import ServiceManagement
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private var eventMonitor: Any?
+    private var clickOutsideMonitor: Any?
 
-    // Shared state
+    // Shared state — single source of truth
     let appState = AppState()
     let permissionsService = PermissionsService()
     private var dictationViewModel: DictationViewModel?
     private let hotkeyService = HotkeyService()
 
+    // Permission change observers
+    private var permissionObservers: [NSObjectProtocol] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Logger.app.info("IndustryFlow launching")
 
-        // Initialize the dictation view model
         dictationViewModel = DictationViewModel(
             appState: appState,
             permissionsService: permissionsService
@@ -25,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPopover()
         setupHotkey()
+        observePermissionChanges()
         checkFirstLaunch()
 
         Logger.app.info("IndustryFlow ready")
@@ -36,7 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "IndustryFlow")
+            button.image = NSImage(
+                systemSymbolName: "waveform",
+                accessibilityDescription: "IndustryFlow"
+            )
             button.image?.isTemplate = true
             button.action = #selector(togglePopover)
             button.target = self
@@ -62,11 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionsService: permissionsService
         )
         popover.contentViewController = NSHostingController(rootView: contentView)
-
         self.popover = popover
 
-        // Monitor for clicks outside the popover to close it
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        // Close popover when user clicks outside
+        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
             if let popover = self?.popover, popover.isShown {
                 popover.performClose(nil)
             }
@@ -79,69 +87,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            // Refresh permissions status when opening
             permissionsService.refreshStatus()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-
-            // Make the popover the key window but don't activate the app
-            // This keeps focus in the target app
             popover.contentViewController?.view.window?.makeKey()
         }
     }
 
-    // MARK: - Global Hotkey
+    // MARK: - Hotkey Setup
 
+    /// Registers the hotkey service if accessibility is available, otherwise
+    /// defers registration to when permission is granted (via notifications).
     private func setupHotkey() {
         hotkeyService.onHotkeyPressed = { [weak self] in
-            guard let self, let viewModel = self.dictationViewModel else { return }
-            Logger.hotkey.info("Global hotkey triggered")
-
-            // Toggle dictation
-            Task { @MainActor in
-                viewModel.toggleDictation()
-
-                // Show/update status in the popover briefly
-                if self.appState.isDictating {
-                    // Show popover to indicate recording started
-                    if let button = self.statusItem?.button, !(self.popover?.isShown ?? false) {
-                        self.popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-                    }
-                    // Update menu bar icon
-                    self.statusItem?.button?.image = NSImage(
-                        systemSymbolName: "waveform.circle.fill",
-                        accessibilityDescription: "IndustryFlow - Recording"
-                    )
-                } else {
-                    // Restore menu bar icon
-                    self.statusItem?.button?.image = NSImage(
-                        systemSymbolName: "waveform",
-                        accessibilityDescription: "IndustryFlow"
-                    )
-                }
-            }
+            self?.handleHotkeyTrigger()
         }
 
-        // Only register if accessibility is enabled (event tap requires it)
         if permissionsService.accessibilityGranted {
             hotkeyService.register()
         } else {
-            Logger.hotkey.warning("Accessibility not granted — global hotkey not registered")
-            // Register once accessibility is granted
-            Task { @MainActor in
-                // Poll for accessibility access
-                for _ in 0..<120 {
-                    try? await Task.sleep(for: .seconds(1))
-                    if AccessibilityService.isAccessibilityEnabled() {
-                        hotkeyService.register()
-                        Logger.hotkey.info("Accessibility granted — hotkey now registered")
-                        break
-                    }
-                }
+            Logger.hotkey.warning(
+                "Accessibility not yet granted — hotkey will activate when permission is granted"
+            )
+        }
+    }
+
+    private func handleHotkeyTrigger() {
+        guard let viewModel = dictationViewModel else { return }
+        Logger.hotkey.info("Double-tap Control triggered")
+
+        Task { @MainActor in
+            viewModel.toggleDictation()
+            updateMenuBarIcon()
+
+            // Show popover briefly when recording starts
+            if appState.isDictating,
+               let button = statusItem?.button,
+               !(popover?.isShown ?? false) {
+                popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             }
         }
     }
 
-    // MARK: - First Launch
+    private func updateMenuBarIcon() {
+        let symbolName = appState.isDictating ? "waveform.circle.fill" : "waveform"
+        let description = appState.isDictating ? "IndustryFlow - Recording" : "IndustryFlow"
+        statusItem?.button?.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: description
+        )
+    }
+
+    // MARK: - Permission Change Monitoring
+
+    /// Listens for permission changes from both PermissionsService and HotkeyService.
+    /// Single coordination point — no duplicate polling.
+    private func observePermissionChanges() {
+        // When accessibility is restored, register the hotkey
+        let restoredObserver = NotificationCenter.default.addObserver(
+            forName: .hotkeyPermissionRestored,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Logger.app.info("Accessibility restored — activating hotkey")
+
+            if !self.hotkeyService.isActive {
+                self.hotkeyService.register()
+            }
+
+            // Clear any permission warning from the UI
+            if self.appState.errorMessage?.contains("Accessibility") == true {
+                self.appState.clearError()
+            }
+        }
+        permissionObservers.append(restoredObserver)
+
+        // When accessibility is lost, alert the user
+        let lostObserver = NotificationCenter.default.addObserver(
+            forName: .hotkeyPermissionLost,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Logger.app.error("Accessibility lost — notifying user")
+
+            self.appState.errorMessage = """
+            Accessibility permission was removed. \
+            Double-tap Control is disabled until you re-enable it in \
+            System Settings > Privacy & Security > Accessibility.
+            """
+
+            // Show the popover so the user sees the warning
+            if let button = self.statusItem?.button, !(self.popover?.isShown ?? false) {
+                self.popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            }
+        }
+        permissionObservers.append(lostObserver)
+    }
+
+    // MARK: - First Launch & Login Item
 
     private func checkFirstLaunch() {
         let hasLaunched = UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
@@ -157,13 +201,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Registers IndustryFlow as a Login Item so it launches automatically on boot.
+    /// Uses SMAppService (macOS 13+) — the modern, App Store-compatible API.
+    static func registerLoginItem() {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            do {
+                try service.register()
+                Logger.app.info("Registered as login item")
+            } catch {
+                Logger.app.error("Failed to register login item: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    static func unregisterLoginItem() {
+        if #available(macOS 13.0, *) {
+            let service = SMAppService.mainApp
+            do {
+                try service.unregister()
+                Logger.app.info("Unregistered login item")
+            } catch {
+                Logger.app.error("Failed to unregister login item: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    static var isLoginItemEnabled: Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+        return false
+    }
+
+    // MARK: - Cleanup
+
     func applicationWillTerminate(_ notification: Notification) {
         hotkeyService.unregister()
+        permissionsService.stopAllMonitoring()
 
-        // Save selected profile
         UserDefaults.standard.set(appState.selectedProfile.id, forKey: "selectedProfileID")
 
-        if let monitor = eventMonitor {
+        for observer in permissionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        permissionObservers.removeAll()
+
+        if let monitor = clickOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
 

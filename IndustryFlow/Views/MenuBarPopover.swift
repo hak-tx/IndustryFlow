@@ -14,6 +14,11 @@ struct MenuBarPopover: View {
 
             Divider()
 
+            // Permission revocation warning
+            if let revoked = permissionsService.revokedPermission {
+                permissionWarning(revoked)
+            }
+
             // Main content
             ScrollView {
                 VStack(spacing: 16) {
@@ -91,6 +96,34 @@ struct MenuBarPopover: View {
         .buttonStyle(.borderedProminent)
         .tint(appState.isDictating ? .red : .accentColor)
         .disabled(appState.isPolishing)
+    }
+
+    // MARK: - Permission Warning
+
+    private func permissionWarning(_ permission: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(permission) permission was removed")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Text("Open System Settings to restore it.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Fix") {
+                if permission == "Accessibility" {
+                    permissionsService.openAccessibilitySettings()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(10)
+        .background(.red.opacity(0.08), in: Rectangle())
+
     }
 
     // MARK: - Error Banner

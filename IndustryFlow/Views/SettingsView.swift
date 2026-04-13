@@ -1,9 +1,11 @@
 import SwiftUI
+import ServiceManagement
 
 struct SettingsView: View {
     @Bindable var appState: AppState
     @Bindable var permissionsService: PermissionsService
     @State private var settingsVM = SettingsViewModel()
+    @State private var launchAtLogin = AppDelegate.isLoginItemEnabled
 
     @Environment(\.dismiss) private var dismiss
 
@@ -42,6 +44,20 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         Form {
+            Section("Startup") {
+                Toggle("Launch IndustryFlow at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        if newValue {
+                            AppDelegate.registerLoginItem()
+                        } else {
+                            AppDelegate.unregisterLoginItem()
+                        }
+                    }
+                Text("Recommended. Ensures IndustryFlow is always ready when you need it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Dictation") {
                 Toggle("Auto-polish after dictation", isOn: $settingsVM.autoPolish)
                     .onChange(of: settingsVM.autoPolish) { _, _ in

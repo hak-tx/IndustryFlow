@@ -1,4 +1,5 @@
 import SwiftUI
+import ServiceManagement
 
 struct OnboardingView: View {
     @Bindable var permissionsService: PermissionsService
@@ -6,14 +7,17 @@ struct OnboardingView: View {
     @State private var apiKey = ""
     @State private var isValidating = false
     @State private var keyIsValid: Bool?
+    @State private var launchAtLogin = true
 
     @Environment(\.dismiss) private var dismiss
 
+    private let totalSteps = 5
     private let steps = [
         "Microphone Access",
         "Speech Recognition",
         "Accessibility",
-        "API Key"
+        "API Key",
+        "Launch at Login"
     ]
 
     var body: some View {
@@ -38,6 +42,7 @@ struct OnboardingView: View {
                 case 1: speechStep
                 case 2: accessibilityStep
                 case 3: apiKeyStep
+                case 4: launchAtLoginStep
                 default: completionStep
                 }
             }
@@ -204,6 +209,27 @@ struct OnboardingView: View {
         }
     }
 
+    private var launchAtLoginStep: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "power")
+                .font(.system(size: 40))
+                .foregroundStyle(.accent)
+
+            Text("Launch at Login")
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            Text("IndustryFlow works best when it's always running in your menu bar, ready when you need it. We recommend enabling launch at login so you never have to think about starting it.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Toggle("Launch IndustryFlow at login", isOn: $launchAtLogin)
+                .toggleStyle(.switch)
+                .frame(maxWidth: 260)
+        }
+    }
+
     private var completionStep: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
@@ -246,6 +272,9 @@ struct OnboardingView: View {
     }
 
     private func finishOnboarding() {
+        if launchAtLogin {
+            AppDelegate.registerLoginItem()
+        }
         dismiss()
     }
 }
