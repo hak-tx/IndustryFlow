@@ -126,23 +126,24 @@ final class DictationViewModel {
     // MARK: - Live Typing
 
     /// Called on every partial/final transcription result.
-    /// Types ONLY the new characters beyond our high water mark.
-    /// Never backspaces — only moves forward like a typewriter.
+    /// Types ONLY new characters beyond what we've already typed.
+    /// Never backspaces — only moves forward.
+    ///
+    /// We track by character count, not by prefix matching. Apple's recognizer
+    /// frequently revises earlier text (capitalization, punctuation, word corrections)
+    /// which would break a hasPrefix check. We don't care about revisions to
+    /// already-typed text — Claude fixes everything when polishing.
     private func handlePartialResult(_ newText: String) {
-        // Only type forward: if the new text extends beyond what we've typed, type the delta.
-        // If the recognizer revised earlier text (shorter or different prefix), ignore it —
-        // Claude will fix everything when polishing.
-        guard newText.count > highWaterText.count else { return }
-        guard newText.hasPrefix(highWaterText) else { return }
+        guard newText.count > typedCharacterCount else { return }
 
-        let delta = String(newText.dropFirst(highWaterText.count))
+        // Type everything past what we've already output
+        let delta = String(newText.suffix(newText.count - typedCharacterCount))
         guard !delta.isEmpty else { return }
 
-        // Type the new characters into the target app via CGEvent
         accessibilityService.typeText(delta)
 
-        highWaterText = newText
         typedCharacterCount += delta.count
+        highWaterText = newText
     }
 
     // MARK: - Polish and Replace
