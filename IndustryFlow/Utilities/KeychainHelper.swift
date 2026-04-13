@@ -20,56 +20,31 @@ enum KeychainHelper {
         }
     }
 
+    /// File-based storage path in Application Support.
+    /// Used instead of Keychain during development to avoid the password prompt
+    /// on every rebuild (Xcode re-signs the binary, invalidating keychain ACLs).
+    /// For production distribution, switch to Keychain with proper code signing.
+    private static var storageURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("IndustryFlow", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent(".api-key")
+    }
+
     static func save(apiKey: String) throws {
         let data = Data(apiKey.utf8)
-
-        // Delete existing item first
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Constants.keychainServiceName,
-            kSecAttrAccount as String: Constants.keychainAccountName
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Constants.keychainServiceName,
-            kSecAttrAccount as String: Constants.keychainAccountName,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.unexpectedStatus(status)
-        }
+        try data.write(to: storageURL, options: [.atomic, .completeFileProtection])
     }
 
     static func retrieve() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Constants.keychainServiceName,
-            kSecAttrAccount as String: Constants.keychainAccountName,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status == errSecSuccess, let data = result as? Data else {
+        guard let data = try? Data(contentsOf: storageURL) else {
             return nil
         }
-
-        return String(data: data, encoding: .utf8)
+        let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (key?.isEmpty == true) ? nil : key
     }
 
     static func delete() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Constants.keychainServiceName,
-            kSecAttrAccount as String: Constants.keychainAccountName
-        ]
-        SecItemDelete(query as CFDictionary)
+        try? FileManager.default.removeItem(at: storageURL)
     }
 }
