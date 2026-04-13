@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import UniformTypeIdentifiers
 import os
 
 @Observable
@@ -9,6 +11,10 @@ final class SettingsViewModel {
     var keyValidationResult: KeyValidationResult?
     var selectedProfileID: String = "general"
     var autoPolish: Bool = true
+
+    // Glossary state
+    var glossaryImportError: String?
+    var isImportingGlossary: Bool = false
 
     private let polishingService = ClaudePolishingService()
 
@@ -72,5 +78,51 @@ final class SettingsViewModel {
 
     var selectedProfile: IndustryProfile {
         IndustryProfile.allProfiles.first { $0.id == selectedProfileID } ?? .general
+    }
+
+    // MARK: - Glossary Import
+
+    /// Opens a file picker and imports the selected CSV/TSV file as a custom glossary.
+    func importGlossary(into appState: AppState) {
+        glossaryImportError = nil
+
+        let panel = NSOpenPanel()
+        panel.title = "Import Company Terminology"
+        panel.message = "Select a CSV or TSV file with your company's terminology. Column 1: Term/Acronym, Column 2: Definition (optional)."
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [
+            UTType.commaSeparatedText,
+            UTType.tabSeparatedText,
+            UTType.plainText,
+        ]
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+
+        isImportingGlossary = true
+
+        do {
+            let glossary = try GlossaryImporter.importFile(at: url)
+            try GlossaryStorage.save(glossary)
+            appState.customGlossary = glossary
+            glossaryImportError = nil
+            Logger.app.info("Imported glossary: \(glossary.terms.count) terms from \(glossary.sourceFileName)")
+        } catch {
+            glossaryImportError = error.localizedDescription
+            Logger.app.error("Glossary import failed: \(error.localizedDescription)")
+        }
+
+        isImportingGlossary = false
+    }
+
+    /// Removes the custom glossary.
+    func deleteGlossary(from appState: AppState) {
+        GlossaryStorage.delete()
+        appState.customGlossary = nil
+        glossaryImportError = nil
+        Logger.app.info("Custom glossary deleted")
     }
 }

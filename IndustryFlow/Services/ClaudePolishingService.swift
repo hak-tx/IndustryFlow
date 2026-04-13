@@ -42,9 +42,53 @@ final class ClaudePolishingService {
         }
     }
 
+    // MARK: - Baseline Cleanup Instructions
+
+    /// These instructions are prepended to EVERY profile's system prompt.
+    /// They handle the universal dictation cleanup that all users expect,
+    /// regardless of industry.
+    private static let baselineCleanupInstructions = """
+    You are processing voice-dictated text. Before applying any industry-specific \
+    formatting, always perform these baseline corrections:
+
+    1. Remove all filler words and verbal hesitations (e.g., "um", "uh", "er", "ah", \
+    "like", "you know", "I mean", "sort of", "kind of", "basically", "actually", \
+    "literally", "right", "so yeah").
+    2. Fix stammer and repetition — if the speaker repeated or restarted a word or \
+    phrase, keep only the final intended version (e.g., "I want to I want to go" → \
+    "I want to go").
+    3. Add proper punctuation: periods, commas, question marks, exclamation points, \
+    colons, and semicolons where natural pauses and sentence boundaries occur.
+    4. Capitalize correctly: sentence beginnings, proper nouns, acronyms, and any \
+    domain-specific terms that are conventionally capitalized.
+    5. Fix grammar: subject-verb agreement, tense consistency, article usage, and \
+    pronoun references.
+    6. Preserve the speaker's intended meaning, tone, and level of formality exactly. \
+    Do not rephrase, summarize, or add information that was not spoken.
+    """
+
+    // MARK: - System Prompt Construction
+
+    /// Builds the full system prompt by combining:
+    /// 1. Baseline dictation cleanup instructions (universal)
+    /// 2. Industry-specific profile instructions
+    /// 3. Custom company glossary (if any)
+    private func buildSystemPrompt(profile: IndustryProfile, glossary: CustomGlossary?) -> String {
+        var prompt = Self.baselineCleanupInstructions
+        prompt += "\n\n"
+        prompt += profile.systemPrompt
+
+        if let glossary, !glossary.terms.isEmpty {
+            prompt += glossary.glossaryPromptFragment
+        }
+
+        prompt += "\n\nReturn ONLY the polished text. No commentary, explanation, or preamble."
+        return prompt
+    }
+
     // MARK: - Polishing
 
-    func polish(text: String, profile: IndustryProfile) async throws -> PolishingResult {
+    func polish(text: String, profile: IndustryProfile, glossary: CustomGlossary? = nil) async throws -> PolishingResult {
         guard let apiKey = KeychainHelper.retrieve(), !apiKey.isEmpty else {
             throw PolishingError.missingAPIKey
         }
@@ -56,16 +100,17 @@ final class ClaudePolishingService {
 
         Logger.polishing.info("Polishing \(trimmed.count) characters with profile: \(profile.name)")
 
+        let systemPrompt = buildSystemPrompt(profile: profile, glossary: glossary)
+
         let requestBody = MessagesRequest(
             model: Constants.defaultModel,
             max_tokens: Constants.maxPolishingTokens,
-            system: profile.systemPrompt,
+            system: systemPrompt,
             messages: [
                 .init(
                     role: "user",
                     content: """
-                    Polish the following dictated text. Return ONLY the polished text, \
-                    no commentary, explanation, or preamble:
+                    Polish the following dictated text:
 
                     <dictated_text>
                     \(trimmed)

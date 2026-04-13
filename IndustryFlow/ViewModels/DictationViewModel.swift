@@ -61,8 +61,9 @@ final class DictationViewModel {
 
         Logger.app.info("Starting dictation with profile: \(self.appState.selectedProfile.name)")
 
-        // Start transcription stream
-        let hints = appState.selectedProfile.vocabularyHints
+        // Start transcription stream with combined vocabulary hints
+        // (industry profile terms + custom company glossary terms)
+        let hints = appState.allVocabularyHints
         let stream = transcriptionService.startTranscription(vocabularyHints: hints)
 
         transcriptionTask = Task { [weak self] in
@@ -156,7 +157,8 @@ final class DictationViewModel {
             do {
                 let result = try await self.polishingService.polish(
                     text: rawText,
-                    profile: self.appState.selectedProfile
+                    profile: self.appState.selectedProfile,
+                    glossary: self.appState.customGlossary
                 )
 
                 await MainActor.run {

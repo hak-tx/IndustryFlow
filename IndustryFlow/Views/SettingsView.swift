@@ -16,6 +16,11 @@ struct SettingsView: View {
                     Label("General", systemImage: "gear")
                 }
 
+            terminologyTab
+                .tabItem {
+                    Label("Terminology", systemImage: "character.book.closed")
+                }
+
             apiTab
                 .tabItem {
                     Label("API", systemImage: "key")
@@ -36,7 +41,7 @@ struct SettingsView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 520, height: 440)
         .padding()
     }
 
@@ -90,6 +95,109 @@ struct SettingsView: View {
                         Label(profile.name, systemImage: profile.icon)
                             .tag(profile)
                     }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Terminology Tab
+
+    private var terminologyTab: some View {
+        Form {
+            Section("Company Terminology") {
+                Text("Upload a CSV or TSV file with your company's internal terminology, acronyms, and jargon. This improves both voice recognition accuracy and AI polishing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Button("Import CSV / TSV File") {
+                        settingsVM.importGlossary(into: appState)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    if settingsVM.isImportingGlossary {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+
+                if let error = settingsVM.glossaryImportError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                    .font(.caption)
+                }
+            }
+
+            if let glossary = appState.customGlossary, !glossary.terms.isEmpty {
+                Section("Loaded: \(glossary.sourceFileName)") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(glossary.terms.count) terms loaded")
+                                .font(.body)
+                            Text("Imported \(glossary.importedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Remove", role: .destructive) {
+                            settingsVM.deleteGlossary(from: appState)
+                        }
+                        .controlSize(.small)
+                    }
+                }
+
+                Section("Preview") {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 6) {
+                            ForEach(glossary.terms.prefix(50)) { term in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(term.term)
+                                        .fontWeight(.medium)
+                                        .frame(minWidth: 80, alignment: .leading)
+                                    if !term.definition.isEmpty {
+                                        Text(term.definition)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .font(.caption)
+                            }
+                            if glossary.terms.count > 50 {
+                                Text("... and \(glossary.terms.count - 50) more terms")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 160)
+                }
+            }
+
+            Section("File Format") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Expected format:")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    Text("""
+                    Column 1: Term or acronym (required)
+                    Column 2: Definition or explanation (recommended)
+
+                    Example:
+                    FTUX, First Time User Experience
+                    XFN, Cross-Functional
+                    L10n, Localization
+                    """)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Text("Export as CSV from Excel, Google Sheets, or Numbers. Header rows are auto-detected and skipped.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
