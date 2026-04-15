@@ -63,6 +63,7 @@ final class DictationViewModel {
         appState.liveTranscript = ""
         appState.polishedText = nil
         actuallyInDocument = ""
+        longestTranscript = ""
 
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             appState.targetAppName = frontApp.localizedName
@@ -137,118 +138,162 @@ final class DictationViewModel {
         }
     }
 
+    /// The longest transcript we've ever received from any cycle.
+    /// This is the canonical state — the document mirrors this.
+    /// Recognizer cycles can return shorter/different text intermittently,
+    /// but we always keep the longest version we've ever seen.
+    private var longestTranscript = ""
+
     // MARK: - Commit (Ratchet — never deletes user's text)
 
-    /// Commits a stable transcript to the document using a RATCHET approach:
-    /// text can only grow, never shrink. We never delete content the recognizer
-    /// previously gave us, even if a later transcription cycle returns shorter
-    /// text (which happens when SFSpeechRecognizer drops earlier audio after
-    /// a long pause).
+    /// Updates the canonical transcript and syncs the document to it.
     ///
-    /// Three cases:
-    /// 1. STRONG PREFIX MATCH (>50% of typed text matches): Normal refinement.
-    ///    Backspace divergent suffix, type new content. Handles capitalization,
-    ///    punctuation, and word correction revisions.
-    ///
-    /// 2. NEW TEXT ALREADY CONTAINED: Recognizer returned a subset of what we
-    ///    have. No-op.
-    ///
-    /// 3. WEAK MATCH (recognizer dropped earlier text): Find any overlap
-    ///    between the END of what we typed and the START of new text.
-    ///    Append only the non-overlapping suffix.
+    /// Strategy:
+    /// 1. Compute case-insensitive overlap between current canonical and new
+    /// 2. If new extends current strongly → update canonical to new
+    /// 3. If new is contained in current (case-insensitively) → no-op
+    /// 4. If new diverges → find suffix/prefix overlap, merge into canonical
+    /// 5. Sync document to canonical via diff (case-sensitive — preserves
+    ///    capitalization the recognizer chose)
     private func commitText(_ stableText: String) {
         guard !stableText.isEmpty else { return }
-        guard stableText != actuallyInDocument else { return }
 
-        // Empty document — just type everything
-        if actuallyInDocument.isEmpty {
-            accessibilityService.enqueueTyping(stableText)
-            actuallyInDocument = stableText
-            return
-        }
+        // Update the canonical longestTranscript using case-insensitive logic
+        updateLongestTranscript(with: stableText)
 
-        let commonLen = commonPrefixLength(actuallyInDocument, stableText)
-        let prefixThreshold = max(actuallyInDocument.count / 2, 8)
-
-        // CASE 1: Strong prefix match → safe to refine (delete divergent suffix, retype)
-        if commonLen >= prefixThreshold {
-            let charsToDelete = actuallyInDocument.count - commonLen
-            let newSuffix = String(stableText.dropFirst(commonLen))
-
-            if charsToDelete > 0 {
-                accessibilityService.enqueueBackspaces(charsToDelete)
-            }
-            if !newSuffix.isEmpty {
-                accessibilityService.enqueueTyping(newSuffix)
-            }
-            actuallyInDocument = stableText
-            Logger.app.debug("Refine: common=\(commonLen), del=\(charsToDelete), type=\(newSuffix.count)")
-            return
-        }
-
-        // CASE 2: Recognizer's text is already contained in our document — no-op
-        if actuallyInDocument.contains(stableText) {
-            Logger.app.debug("Skip: stableText already in document")
-            return
-        }
-
-        // CASE 3: Weak match — recognizer dropped earlier text. Find suffix/prefix
-        // overlap and append only the new content.
-        let overlapLen = suffixPrefixOverlap(suffixOf: actuallyInDocument, prefixOf: stableText)
-        let toAppend = String(stableText.dropFirst(overlapLen))
-
-        guard !toAppend.isEmpty else {
-            Logger.app.debug("Skip: full overlap, nothing new to append")
-            return
-        }
-
-        // Add a space separator if needed
-        let needsSpace = !actuallyInDocument.hasSuffix(" ")
-            && !toAppend.hasPrefix(" ")
-            && !".,;:!?".contains(toAppend.first ?? " ")
-        let finalAppend = needsSpace ? " " + toAppend : toAppend
-
-        accessibilityService.enqueueTyping(finalAppend)
-        actuallyInDocument += finalAppend
-
-        Logger.app.info("Append (recognizer dropped earlier text): overlap=\(overlapLen), appended=\(finalAppend.count) chars")
+        // Sync the document to match the canonical
+        syncDocumentToCanonical()
     }
 
-    /// Returns the length of the longest common prefix between two strings.
-    private func commonPrefixLength(_ a: String, _ b: String) -> Int {
-        let aChars = Array(a)
-        let bChars = Array(b)
-        let minLen = min(aChars.count, bChars.count)
-        for i in 0..<minLen {
-            if aChars[i] != bChars[i] {
-                return i
+    private func updateLongestTranscript(with newText: String) {
+        // Case 1: Empty canonical → adopt
+        if longestTranscript.isEmpty {
+            longestTranscript = newText
+            return
+        }
+
+        // Case 2: Identical (ignoring case) → keep new (more recent capitalization)
+        if longestTranscript.lowercased() == newText.lowercased() {
+            // Prefer the longer one if they differ in length (e.g. trailing space)
+            if newText.count >= longestTranscript.count {
+                longestTranscript = newText
             }
+            return
+        }
+
+        // Case 3: New text is contained in canonical (case-insensitive) → no-op
+        if longestTranscript.lowercased().contains(newText.lowercased()) {
+            return
+        }
+
+        // Case 4: Canonical is contained in new text (case-insensitive) → adopt new
+        // (this is the normal "extension" case — recognizer added more words)
+        if newText.lowercased().contains(longestTranscript.lowercased()) {
+            longestTranscript = newText
+            return
+        }
+
+        // Case 5: Strong shared prefix (case-insensitive) → adopt new (it's a refinement)
+        let commonLen = caseInsensitivePrefixLength(longestTranscript, newText)
+        let prefixRatio = Double(commonLen) / Double(longestTranscript.count)
+
+        if prefixRatio > 0.5 {
+            longestTranscript = newText
+            return
+        }
+
+        // Case 6: Weak prefix match — recognizer dropped earlier text or
+        // we have a continuation. Find the overlap between END of canonical
+        // and START of new text (case-insensitive).
+        let overlap = caseInsensitiveSuffixPrefixOverlap(suffixOf: longestTranscript, prefixOf: newText)
+        let toAppend = String(newText.dropFirst(overlap))
+
+        guard !toAppend.isEmpty else { return }
+
+        let needsSpace = !longestTranscript.hasSuffix(" ")
+            && !toAppend.hasPrefix(" ")
+            && !".,;:!?".contains(toAppend.first ?? " ")
+        let separator = needsSpace ? " " : ""
+        longestTranscript += separator + toAppend
+
+        Logger.app.debug("Append: overlap=\(overlap), appended \(toAppend.count) chars")
+    }
+
+    /// Diffs the document against longestTranscript and types the changes.
+    /// Uses case-sensitive prefix matching (we want exact characters in the document).
+    private func syncDocumentToCanonical() {
+        guard longestTranscript != actuallyInDocument else { return }
+
+        if actuallyInDocument.isEmpty {
+            accessibilityService.enqueueTyping(longestTranscript)
+            actuallyInDocument = longestTranscript
+            return
+        }
+
+        let common = exactPrefixLength(actuallyInDocument, longestTranscript)
+        let charsToDelete = actuallyInDocument.count - common
+        let suffix = String(longestTranscript.dropFirst(common))
+
+        // Safety check: never backspace more than half the document at once.
+        // This prevents catastrophic deletion if logic somehow goes wrong.
+        let maxSafeDelete = max(actuallyInDocument.count / 2, 20)
+        if charsToDelete > maxSafeDelete {
+            Logger.app.warning("Refusing to delete \(charsToDelete) chars (max \(maxSafeDelete)) — appending instead")
+            // Just append the new content with a separator
+            let needsSpace = !actuallyInDocument.hasSuffix(" ") && !suffix.hasPrefix(" ")
+            let toType = (needsSpace ? " " : "") + suffix
+            accessibilityService.enqueueTyping(toType)
+            actuallyInDocument += toType
+            return
+        }
+
+        if charsToDelete > 0 {
+            accessibilityService.enqueueBackspaces(charsToDelete)
+        }
+        if !suffix.isEmpty {
+            accessibilityService.enqueueTyping(suffix)
+        }
+        actuallyInDocument = longestTranscript
+    }
+
+    // MARK: - String Comparison Helpers
+
+    private func caseInsensitivePrefixLength(_ a: String, _ b: String) -> Int {
+        let aL = Array(a.lowercased())
+        let bL = Array(b.lowercased())
+        let minLen = min(aL.count, bL.count)
+        for i in 0..<minLen {
+            if aL[i] != bL[i] { return i }
         }
         return minLen
     }
 
-    /// Finds the longest length L such that the last L chars of `suffixOf`
-    /// equal the first L chars of `prefixOf`. Used to detect overlap when
-    /// the recognizer's new transcript starts with words we already typed.
-    private func suffixPrefixOverlap(suffixOf a: String, prefixOf b: String) -> Int {
-        let maxLen = min(a.count, b.count)
-        guard maxLen > 0 else { return 0 }
-
+    private func exactPrefixLength(_ a: String, _ b: String) -> Int {
         let aChars = Array(a)
         let bChars = Array(b)
+        let minLen = min(aChars.count, bChars.count)
+        for i in 0..<minLen {
+            if aChars[i] != bChars[i] { return i }
+        }
+        return minLen
+    }
 
-        // Try from longest possible overlap down to 1
+    private func caseInsensitiveSuffixPrefixOverlap(suffixOf a: String, prefixOf b: String) -> Int {
+        let aL = Array(a.lowercased())
+        let bL = Array(b.lowercased())
+        let maxLen = min(aL.count, bL.count)
+        guard maxLen > 0 else { return 0 }
+
+        // Try longest overlap first
         for len in (1...maxLen).reversed() {
             var matches = true
             for i in 0..<len {
-                if aChars[aChars.count - len + i] != bChars[i] {
+                if aL[aL.count - len + i] != bL[i] {
                     matches = false
                     break
                 }
             }
-            if matches {
-                return len
-            }
+            if matches { return len }
         }
         return 0
     }
