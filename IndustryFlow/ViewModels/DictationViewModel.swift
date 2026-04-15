@@ -137,36 +137,84 @@ final class DictationViewModel {
         }
     }
 
-    // MARK: - Commit (Diff + Type)
+    // MARK: - Commit (Ratchet — never deletes user's text)
 
-    /// Commits a stable transcript to the document.
-    /// Computes a real string diff against what we've already typed,
-    /// backspaces to the divergence point, and types the corrected text.
+    /// Commits a stable transcript to the document using a RATCHET approach:
+    /// text can only grow, never shrink. We never delete content the recognizer
+    /// previously gave us, even if a later transcription cycle returns shorter
+    /// text (which happens when SFSpeechRecognizer drops earlier audio after
+    /// a long pause).
     ///
-    /// This handles ALL recognizer revision cases:
-    /// - Capitalization changes ("hello" → "Hello")
-    /// - Punctuation insertion ("Hello world" → "Hello, world")
-    /// - Word corrections ("their" → "there")
-    /// - New text appended ("Hello" → "Hello world")
+    /// Three cases:
+    /// 1. STRONG PREFIX MATCH (>50% of typed text matches): Normal refinement.
+    ///    Backspace divergent suffix, type new content. Handles capitalization,
+    ///    punctuation, and word correction revisions.
+    ///
+    /// 2. NEW TEXT ALREADY CONTAINED: Recognizer returned a subset of what we
+    ///    have. No-op.
+    ///
+    /// 3. WEAK MATCH (recognizer dropped earlier text): Find any overlap
+    ///    between the END of what we typed and the START of new text.
+    ///    Append only the non-overlapping suffix.
     private func commitText(_ stableText: String) {
+        guard !stableText.isEmpty else { return }
         guard stableText != actuallyInDocument else { return }
 
+        // Empty document — just type everything
+        if actuallyInDocument.isEmpty {
+            accessibilityService.enqueueTyping(stableText)
+            actuallyInDocument = stableText
+            return
+        }
+
         let commonLen = commonPrefixLength(actuallyInDocument, stableText)
-        let charsToDelete = actuallyInDocument.count - commonLen
-        let newSuffix = String(stableText.dropFirst(commonLen))
+        let prefixThreshold = max(actuallyInDocument.count / 2, 8)
 
-        Logger.app.debug("Commit: common=\(commonLen), del=\(charsToDelete), type=\(newSuffix.count)")
+        // CASE 1: Strong prefix match → safe to refine (delete divergent suffix, retype)
+        if commonLen >= prefixThreshold {
+            let charsToDelete = actuallyInDocument.count - commonLen
+            let newSuffix = String(stableText.dropFirst(commonLen))
 
-        if charsToDelete > 0 {
-            accessibilityService.enqueueBackspaces(charsToDelete)
+            if charsToDelete > 0 {
+                accessibilityService.enqueueBackspaces(charsToDelete)
+            }
+            if !newSuffix.isEmpty {
+                accessibilityService.enqueueTyping(newSuffix)
+            }
+            actuallyInDocument = stableText
+            Logger.app.debug("Refine: common=\(commonLen), del=\(charsToDelete), type=\(newSuffix.count)")
+            return
         }
-        if !newSuffix.isEmpty {
-            accessibilityService.enqueueTyping(newSuffix)
+
+        // CASE 2: Recognizer's text is already contained in our document — no-op
+        if actuallyInDocument.contains(stableText) {
+            Logger.app.debug("Skip: stableText already in document")
+            return
         }
 
-        actuallyInDocument = stableText
+        // CASE 3: Weak match — recognizer dropped earlier text. Find suffix/prefix
+        // overlap and append only the new content.
+        let overlapLen = suffixPrefixOverlap(suffixOf: actuallyInDocument, prefixOf: stableText)
+        let toAppend = String(stableText.dropFirst(overlapLen))
+
+        guard !toAppend.isEmpty else {
+            Logger.app.debug("Skip: full overlap, nothing new to append")
+            return
+        }
+
+        // Add a space separator if needed
+        let needsSpace = !actuallyInDocument.hasSuffix(" ")
+            && !toAppend.hasPrefix(" ")
+            && !".,;:!?".contains(toAppend.first ?? " ")
+        let finalAppend = needsSpace ? " " + toAppend : toAppend
+
+        accessibilityService.enqueueTyping(finalAppend)
+        actuallyInDocument += finalAppend
+
+        Logger.app.info("Append (recognizer dropped earlier text): overlap=\(overlapLen), appended=\(finalAppend.count) chars")
     }
 
+    /// Returns the length of the longest common prefix between two strings.
     private func commonPrefixLength(_ a: String, _ b: String) -> Int {
         let aChars = Array(a)
         let bChars = Array(b)
@@ -177,6 +225,32 @@ final class DictationViewModel {
             }
         }
         return minLen
+    }
+
+    /// Finds the longest length L such that the last L chars of `suffixOf`
+    /// equal the first L chars of `prefixOf`. Used to detect overlap when
+    /// the recognizer's new transcript starts with words we already typed.
+    private func suffixPrefixOverlap(suffixOf a: String, prefixOf b: String) -> Int {
+        let maxLen = min(a.count, b.count)
+        guard maxLen > 0 else { return 0 }
+
+        let aChars = Array(a)
+        let bChars = Array(b)
+
+        // Try from longest possible overlap down to 1
+        for len in (1...maxLen).reversed() {
+            var matches = true
+            for i in 0..<len {
+                if aChars[aChars.count - len + i] != bChars[i] {
+                    matches = false
+                    break
+                }
+            }
+            if matches {
+                return len
+            }
+        }
+        return 0
     }
 
     // MARK: - Polish and Replace
