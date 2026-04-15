@@ -215,12 +215,22 @@ final class DictationViewModel {
             return
         }
 
-        // Case 5: Strong shared prefix (case-insensitive) → adopt new (it's a refinement)
+        // Case 5: Strong shared prefix (case-insensitive) → adopt new (refinement)
         let commonLen = caseInsensitivePrefixLength(longestTranscript, newText)
         let prefixRatio = Double(commonLen) / Double(longestTranscript.count)
 
         if prefixRatio > 0.5 {
             longestTranscript = newText
+            return
+        }
+
+        // Case 5.5: FUZZY CONTAINMENT — if new text has MOST of canonical's words
+        // AND is at least as long, it's a refined version of the same content
+        // (recognizer just changed some words like "200"→"240"). Adopt new.
+        // This catches the case where the recognizer revises early content.
+        if isRefinementOf(canonical: longestTranscript, new: newText) {
+            longestTranscript = newText
+            Logger.app.debug("Adopting fuzzy refinement (most words match, new is longer)")
             return
         }
 
@@ -279,6 +289,37 @@ final class DictationViewModel {
 
     private func tokenize(_ s: String) -> [String] {
         return s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    /// Returns true if `new` appears to be a refined version of `canonical`:
+    /// most of canonical's words appear in new (case-insensitive), AND new
+    /// is at least roughly the same length as canonical.
+    ///
+    /// This catches cases where the recognizer revises a word mid-sentence
+    /// (e.g. "200" → "240") which breaks both prefix matching and exact
+    /// token overlap, but the new text is clearly the same content + extension.
+    private func isRefinementOf(canonical: String, new: String) -> Bool {
+        let canonicalTokens = tokenize(canonical)
+        let newTokens = tokenize(new)
+
+        // Need at least a few words in canonical to make this judgment safely
+        guard canonicalTokens.count >= 3 else { return false }
+
+        // New must be at least 90% of canonical's word count to count as refinement.
+        // Otherwise it's likely a partial transcript (recognizer dropped earlier audio).
+        guard Double(newTokens.count) >= Double(canonicalTokens.count) * 0.9 else {
+            return false
+        }
+
+        // Count how many of canonical's words appear in new (case-insensitive)
+        let newSet = Set(newTokens.map { $0.lowercased() })
+        let matches = canonicalTokens.filter { newSet.contains($0.lowercased()) }.count
+        let matchRatio = Double(matches) / Double(canonicalTokens.count)
+
+        // 60% of canonical's words must be in new for it to count as refinement.
+        // This threshold is intentionally conservative to avoid false positives
+        // that would replace legitimate canonical content.
+        return matchRatio >= 0.6
     }
 
     /// Diffs the document against longestTranscript and types the changes.
