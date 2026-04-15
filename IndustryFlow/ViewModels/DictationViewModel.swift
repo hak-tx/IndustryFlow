@@ -72,6 +72,10 @@ final class DictationViewModel {
         appState.isDictating = true
         Logger.app.info("Dictation started — \(self.appState.selectedProfile.name) / \(self.appState.selectedFormat.name)")
 
+        // Play "ready" sound to give the user a clear "begin speaking" cue.
+        // Also gives the audio engine ~100ms of additional warmup time.
+        NSSound(named: NSSound.Name("Tink"))?.play()
+
         let hints = appState.allVocabularyHints
         let stream = transcriptionService.startTranscription(vocabularyHints: hints)
 
@@ -97,6 +101,9 @@ final class DictationViewModel {
 
     func stopDictation() {
         guard appState.isDictating else { return }
+
+        // Play "stop" sound so user knows dictation has ended
+        NSSound(named: NSSound.Name("Pop"))?.play()
 
         appState.isDictating = false
 

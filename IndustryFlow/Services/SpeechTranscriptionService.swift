@@ -143,7 +143,30 @@ final class SpeechTranscriptionService: @unchecked Sendable {
 
         audioEngine.prepare()
         try audioEngine.start()
-        Logger.transcription.info("Audio engine started")
+
+        // Seed the buffer with ~400ms of silence to warm up the recognizer's VAD.
+        // Without this, the first words spoken can be mistakenly classified as
+        // background noise and dropped from the transcript.
+        prependSilenceWarmup(format: recordingFormat, durationMS: 400)
+
+        Logger.transcription.info("Audio engine started (with VAD warmup)")
+    }
+
+    /// Prepends silence buffers to allBuffers so the recognizer has settling time.
+    /// This prevents the first words from being lost to VAD warmup.
+    private func prependSilenceWarmup(format: AVAudioFormat, durationMS: Int) {
+        let sampleRate = format.sampleRate
+        let frameCount = AVAudioFrameCount(sampleRate * Double(durationMS) / 1000.0)
+
+        guard let silenceBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return
+        }
+        silenceBuffer.frameLength = frameCount
+
+        // Buffers are zero-initialized by default, which is silence.
+        bufferLock.lock()
+        allBuffers.insert(silenceBuffer, at: 0)
+        bufferLock.unlock()
     }
 
     private func copyBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
