@@ -11,14 +11,21 @@ enum TranscriptionUpdate: Sendable {
 
 final class SpeechTranscriptionService: @unchecked Sendable {
     private let audioEngine = AVAudioEngine()
+    private var speechRecognizer: SFSpeechRecognizer?
+
+    /// Serial queue protecting recognitionRequest/recognitionTask access.
+    /// The audio tap callback runs on a high-priority audio thread and
+    /// reads recognitionRequest. Chain swap runs on main. Without this lock,
+    /// the audio thread could see a nil request mid-swap and drop frames.
+    private let stateLock = NSLock()
+
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var speechRecognizer: SFSpeechRecognizer?
     private var continuation: AsyncStream<TranscriptionUpdate>.Continuation?
     private var accumulatedTranscript = ""
     private var isRunning = false
-    private var isChaining = false
     private var savedVocabularyHints: [String] = []
+    private var isOnDevice = false
 
     init(locale: Locale = .current) {
         self.speechRecognizer = SFSpeechRecognizer(locale: locale)
@@ -38,12 +45,12 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         await AVCaptureDevice.requestAccess(for: .audio)
     }
 
-    // MARK: - Transcription
+    // MARK: - Public API
 
     func startTranscription(vocabularyHints: [String] = []) -> AsyncStream<TranscriptionUpdate> {
         savedVocabularyHints = vocabularyHints
 
-        let stream = AsyncStream<TranscriptionUpdate> { continuation in
+        return AsyncStream<TranscriptionUpdate> { continuation in
             self.continuation = continuation
 
             continuation.onTermination = { @Sendable _ in
@@ -60,20 +67,18 @@ final class SpeechTranscriptionService: @unchecked Sendable {
                 continuation.finish()
             }
         }
-        return stream
     }
 
     func stopTranscription() {
         Logger.transcription.info("Stopping transcription")
         isRunning = false
+        stateLock.lock()
         recognitionRequest?.endAudio()
+        stateLock.unlock()
         cleanupAudio()
     }
 
-    // MARK: - Private
-
-    /// Audio buffers captured during the chain gap — replayed into the new request.
-    private var pendingBuffers: [AVAudioPCMBuffer] = []
+    // MARK: - Audio Setup
 
     private func configureAndStartAudio() throws {
         guard let speechRecognizer, speechRecognizer.isAvailable else {
@@ -83,90 +88,81 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         recognitionTask?.cancel()
         recognitionTask = nil
         accumulatedTranscript = ""
-        pendingBuffers = []
         isRunning = true
 
-        // Start the audio engine ONCE — it stays running for the entire session
+        // Create the FIRST recognition request BEFORE installing the audio tap.
+        // This ensures the tap always has a request to feed audio into.
+        let firstRequest = createNewRequest()
+        let firstTask = startTask(for: firstRequest)
+
+        stateLock.lock()
+        self.recognitionRequest = firstRequest
+        self.recognitionTask = firstTask
+        stateLock.unlock()
+
+        // Install audio tap — feeds audio to whatever request is currently active.
+        // The lock ensures atomic read of recognitionRequest during chain swaps.
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            if let request = self.recognitionRequest {
-                // Normal path: feed audio to the active recognizer
-                request.append(buffer)
-            } else {
-                // Chain gap: buffer the audio so no words are lost
-                self.pendingBuffers.append(buffer)
-            }
+            self.stateLock.lock()
+            let request = self.recognitionRequest
+            self.stateLock.unlock()
+            request?.append(buffer)
         }
 
         audioEngine.prepare()
         try audioEngine.start()
-        Logger.transcription.info("Audio engine started")
-
-        // Start the first recognition request
-        startRecognitionRequest()
+        Logger.transcription.info("Audio engine started, recognition active")
     }
 
-    private var isOnDevice = false
+    // MARK: - Recognition Request Lifecycle
 
-    private func startRecognitionRequest() {
-        isChaining = false
-
+    private func createNewRequest() -> SFSpeechAudioBufferRecognitionRequest {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
-        // Keep the recognition task alive even after long pauses
         request.addsPunctuation = true
 
         if !savedVocabularyHints.isEmpty {
             request.contextualStrings = savedVocabularyHints
         }
 
-        // On-device recognition has NO time limit.
-        // When on-device, we NEVER chain — one request runs the entire session.
         if #available(macOS 13.0, *) {
             if speechRecognizer?.supportsOnDeviceRecognition == true {
                 request.requiresOnDeviceRecognition = true
                 isOnDevice = true
-                Logger.transcription.info("Using on-device recognition (no time limit, no chaining)")
             } else {
                 isOnDevice = false
-                Logger.transcription.info("On-device not available, using server")
             }
         }
 
-        self.recognitionRequest = request
+        return request
+    }
 
-        // Replay any audio buffers captured during a chain gap
-        if !pendingBuffers.isEmpty {
-            Logger.transcription.info("Replaying \(self.pendingBuffers.count) buffered audio frames")
-            for buffer in pendingBuffers {
-                request.append(buffer)
-            }
-            pendingBuffers.removeAll()
-        }
-
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+    private func startTask(for request: SFSpeechAudioBufferRecognitionRequest) -> SFSpeechRecognitionTask? {
+        return speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
 
             if let result {
                 let text = result.bestTranscription.formattedString
 
                 if result.isFinal {
+                    // Accumulate this final segment
                     if !self.accumulatedTranscript.isEmpty {
                         self.accumulatedTranscript += " "
                     }
                     self.accumulatedTranscript += text
                     self.continuation?.yield(.final_(self.accumulatedTranscript))
 
-                    // ALWAYS chain after a final result. The recognition task is
-                    // DONE after isFinal — it will never send another callback.
-                    // This is true for BOTH on-device and server modes.
-                    // The debounce+diff typing strategy handles chaining safely.
+                    // The task is DONE after isFinal. Swap to a new one
+                    // WITHOUT a gap — create new request first, then atomically
+                    // swap. The audio tap will feed audio to the new request
+                    // as soon as we publish it.
                     if self.isRunning {
-                        self.chainNewRequest()
+                        self.swapToNewRequest(oldTask: self.recognitionTask)
                     }
                 } else {
                     var fullText = self.accumulatedTranscript
@@ -180,36 +176,49 @@ final class SpeechTranscriptionService: @unchecked Sendable {
 
             if let error {
                 let nsError = error as NSError
+                Logger.transcription.debug("Task ended (\(nsError.domain) \(nsError.code))")
 
-                if self.isChaining {
-                    Logger.transcription.debug("Ignoring error during chain: \(nsError.code)")
+                // Don't restart on errors during shutdown
+                guard self.isRunning else { return }
+
+                // Check if this task is still the current one. If we already
+                // swapped, ignore this terminal callback from the old task.
+                self.stateLock.lock()
+                let isCurrentTask = (self.recognitionTask != nil)
+                self.stateLock.unlock()
+
+                if !isCurrentTask {
+                    // We already swapped — this is the old task dying. Ignore.
                     return
                 }
 
-                guard self.isRunning else { return }
-
-                // On-device mode: the task ended (timeout, no speech detected, etc.)
-                // Restart seamlessly — accumulate what we have, start fresh.
-                Logger.transcription.info("Recognition ended (\(nsError.domain) \(nsError.code)), restarting")
-                self.chainNewRequest()
+                // The current task died unexpectedly (e.g. no-speech timeout).
+                // Restart it.
+                self.swapToNewRequest(oldTask: self.recognitionTask)
             }
         }
     }
 
-    private func chainNewRequest() {
-        isChaining = true
+    /// Atomically swaps to a new recognition request. The audio tap will
+    /// see the new request immediately on its next read and feed audio to it.
+    /// There is NO gap where audio could be lost.
+    private func swapToNewRequest(oldTask: SFSpeechRecognitionTask?) {
+        guard isRunning else { return }
 
-        // Cancel the old recognition task but DO NOT stop the audio engine.
-        // The audio tap keeps running — no gap in audio capture.
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
+        // Create the new request and start its task BEFORE swapping.
+        // This way the new task is ready to receive audio the moment we
+        // publish it via the lock.
+        let newRequest = createNewRequest()
+        let newTask = startTask(for: newRequest)
 
-        // Brief delay for the system to release the old task, then start a new one
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self, self.isRunning else { return }
-            self.startRecognitionRequest()
-        }
+        // Atomic swap: from this point on, the audio tap feeds the new request.
+        stateLock.lock()
+        self.recognitionRequest = newRequest
+        self.recognitionTask = newTask
+        stateLock.unlock()
+
+        // Old task is already terminated (isFinal fired or error). Just nil out.
+        oldTask?.cancel()
     }
 
     private func cleanupAudio() {
@@ -219,9 +228,11 @@ final class SpeechTranscriptionService: @unchecked Sendable {
             audioEngine.stop()
         }
 
+        stateLock.lock()
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
+        stateLock.unlock()
 
         continuation?.finish()
         continuation = nil
