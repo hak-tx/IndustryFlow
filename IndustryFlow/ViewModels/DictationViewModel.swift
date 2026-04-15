@@ -15,18 +15,8 @@ final class DictationViewModel {
     private var transcriptionTask: Task<Void, Never>?
 
     /// What is physically typed into the target document right now.
-    /// This is the source of truth for what the user sees.
+    /// Source of truth — kept in sync with what we've sent to the typing queue.
     private var actuallyInDocument = ""
-
-    /// Most recent text from the recognizer (may be mid-revision).
-    private var latestRecognizerText = ""
-
-    /// Debounce timer — waits for recognizer to stabilize before typing.
-    private var debounceTask: Task<Void, Never>?
-
-    /// How long to wait for the recognizer to stop revising before we commit text.
-    /// 250ms is imperceptible to the user but enough for the recognizer to settle.
-    private let debounceInterval: UInt64 = 250_000_000 // 250ms in nanoseconds
 
     init(appState: AppState, permissionsService: PermissionsService) {
         self.appState = appState
@@ -55,7 +45,7 @@ final class DictationViewModel {
             return
         }
 
-        // If started from the popover, close it and return focus to previous app
+        // If started from popover, close it and return focus to the previous app
         let ourBundleID = Bundle.main.bundleIdentifier ?? "com.industryflow.app"
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ourBundleID {
             NotificationCenter.default.post(name: .closePopoverForDictation, object: nil)
@@ -72,12 +62,7 @@ final class DictationViewModel {
         appState.clearError()
         appState.liveTranscript = ""
         appState.polishedText = nil
-
-        // Reset all state
         actuallyInDocument = ""
-        latestRecognizerText = ""
-        debounceTask?.cancel()
-        debounceTask = nil
 
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             appState.targetAppName = frontApp.localizedName
@@ -91,12 +76,14 @@ final class DictationViewModel {
 
         transcriptionTask = Task { [weak self] in
             for await update in stream {
-                guard let self, self.appState.isDictating else { break }
+                guard let self else { break }
+                // Don't break on !isDictating — we may still receive the final
+                // transcription from stopTranscription() after isDictating is false.
 
                 switch update {
                 case .partial(let text), .final_(let text):
                     self.appState.liveTranscript = text
-                    self.onRecognizerUpdate(text)
+                    self.commitText(text)
 
                 case .error(let message):
                     Logger.app.error("Transcription error: \(message)")
@@ -110,59 +97,53 @@ final class DictationViewModel {
     func stopDictation() {
         guard appState.isDictating else { return }
 
-        transcriptionService.stopTranscription()
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
         appState.isDictating = false
 
-        // Commit any pending text immediately (don't wait for debounce)
-        debounceTask?.cancel()
-        debounceTask = nil
-        if latestRecognizerText != actuallyInDocument {
-            commitText(latestRecognizerText)
+        // stopTranscription will yield one FINAL transcript before finishing the stream.
+        // We need to wait for that final yield to be processed before polishing.
+        // Run stopTranscription off the main thread (it blocks for up to 5s).
+        let service = transcriptionService
+        Task.detached { [weak self] in
+            service.stopTranscription()
+
+            // Now the stream has finished. Wait a moment for any pending UI updates.
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+
+            await MainActor.run {
+                self?.transcriptionTask?.cancel()
+                self?.transcriptionTask = nil
+                self?.finalizeAndPolish()
+            }
         }
+    }
 
-        Logger.app.info("Dictation stopped — \(self.actuallyInDocument.count) characters in document")
+    private func finalizeAndPolish() {
+        Logger.app.info("Finalizing dictation — \(self.actuallyInDocument.count) chars in document")
 
-        // Wait for typing queue to finish, then polish
         let rawText = actuallyInDocument.trimmingCharacters(in: .whitespacesAndNewlines)
-        let charCount = actuallyInDocument.count
         guard !rawText.isEmpty else {
             Logger.app.info("No text was transcribed")
             return
         }
 
-        let service = accessibilityService
+        // Wait for any in-flight typing to complete
+        let charCount = actuallyInDocument.count
+        let axService = accessibilityService
         Task.detached { [weak self] in
-            service.drainTypingQueue()
+            axService.drainTypingQueue()
             await MainActor.run {
                 self?.polishAndReplace(rawText: rawText, characterCount: charCount)
             }
         }
     }
 
-    // MARK: - Debounce + Diff
+    // MARK: - Commit (Diff + Type)
 
-    /// Called on every partial/final from the recognizer.
-    /// Does NOT type immediately. Stores the text and resets a 250ms timer.
-    /// When the timer fires (text has been stable for 250ms), commitText runs.
-    private func onRecognizerUpdate(_ text: String) {
-        latestRecognizerText = text
-
-        // Reset the debounce timer
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: self?.debounceInterval ?? 250_000_000)
-            guard let self, !Task.isCancelled, self.appState.isDictating else { return }
-            self.commitText(self.latestRecognizerText)
-        }
-    }
-
-    /// Commits stable text to the document. Computes a proper diff against
-    /// what's already typed, backspaces to the divergence point, and types
-    /// the corrected text from there.
+    /// Commits a stable transcript to the document.
+    /// Computes a real string diff against what we've already typed,
+    /// backspaces to the divergence point, and types the corrected text.
     ///
-    /// This handles ALL recognizer revision cases correctly:
+    /// This handles ALL recognizer revision cases:
     /// - Capitalization changes ("hello" → "Hello")
     /// - Punctuation insertion ("Hello world" → "Hello, world")
     /// - Word corrections ("their" → "there")
@@ -170,21 +151,12 @@ final class DictationViewModel {
     private func commitText(_ stableText: String) {
         guard stableText != actuallyInDocument else { return }
 
-        // Find the longest common prefix (case-sensitive, exact match)
         let commonLen = commonPrefixLength(actuallyInDocument, stableText)
-
-        // How many characters to delete from the end of what's in the document
         let charsToDelete = actuallyInDocument.count - commonLen
-
-        // What to type after the common prefix
         let newSuffix = String(stableText.dropFirst(commonLen))
 
-        Logger.app.debug("""
-        Commit: common=\(commonLen), delete=\(charsToDelete), \
-        type=\(newSuffix.count) chars
-        """)
+        Logger.app.debug("Commit: common=\(commonLen), del=\(charsToDelete), type=\(newSuffix.count)")
 
-        // Backspace the divergent portion, then type the new text
         if charsToDelete > 0 {
             accessibilityService.enqueueBackspaces(charsToDelete)
         }
@@ -195,7 +167,6 @@ final class DictationViewModel {
         actuallyInDocument = stableText
     }
 
-    /// Returns the length of the longest common prefix between two strings.
     private func commonPrefixLength(_ a: String, _ b: String) -> Int {
         let aChars = Array(a)
         let bChars = Array(b)
