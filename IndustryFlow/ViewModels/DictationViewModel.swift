@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import AudioToolbox
 import os
 
 @Observable
@@ -17,6 +18,20 @@ final class DictationViewModel {
     /// What is physically typed into the target document right now.
     /// Source of truth — kept in sync with what we've sent to the typing queue.
     private var actuallyInDocument = ""
+
+    // System sound IDs for start/stop dictation cues
+    private static let startSoundID: SystemSoundID = {
+        var id: SystemSoundID = 0
+        let url = URL(fileURLWithPath: "/System/Library/Sounds/Tink.aiff")
+        AudioServicesCreateSystemSoundID(url as CFURL, &id)
+        return id
+    }()
+    private static let stopSoundID: SystemSoundID = {
+        var id: SystemSoundID = 0
+        let url = URL(fileURLWithPath: "/System/Library/Sounds/Pop.aiff")
+        AudioServicesCreateSystemSoundID(url as CFURL, &id)
+        return id
+    }()
 
     init(appState: AppState, permissionsService: PermissionsService) {
         self.appState = appState
@@ -73,8 +88,8 @@ final class DictationViewModel {
         Logger.app.info("Dictation started — \(self.appState.selectedProfile.name) / \(self.appState.selectedFormat.name)")
 
         // Play "ready" sound to give the user a clear "begin speaking" cue.
-        // Also gives the audio engine ~100ms of additional warmup time.
-        NSSound(named: NSSound.Name("Tink"))?.play()
+        // Uses AudioToolbox (more reliable than NSSound for system sounds).
+        AudioServicesPlaySystemSound(Self.startSoundID)
 
         let hints = appState.allVocabularyHints
         let stream = transcriptionService.startTranscription(vocabularyHints: hints)
@@ -103,7 +118,7 @@ final class DictationViewModel {
         guard appState.isDictating else { return }
 
         // Play "stop" sound so user knows dictation has ended
-        NSSound(named: NSSound.Name("Pop"))?.play()
+        AudioServicesPlaySystemSound(Self.stopSoundID)
 
         appState.isDictating = false
 
@@ -210,20 +225,60 @@ final class DictationViewModel {
         }
 
         // Case 6: Weak prefix match — recognizer dropped earlier text or
-        // we have a continuation. Find the overlap between END of canonical
-        // and START of new text (case-insensitive).
-        let overlap = caseInsensitiveSuffixPrefixOverlap(suffixOf: longestTranscript, prefixOf: newText)
-        let toAppend = String(newText.dropFirst(overlap))
+        // we have a continuation. Use TOKEN-LEVEL overlap detection: find
+        // the longest sequence of words at the end of canonical that matches
+        // the start of newText. If found, REPLACE canonical from that point
+        // with the full newText (it has corrections to those words).
+        if let mergedText = mergeWithTokenOverlap(canonical: longestTranscript, new: newText) {
+            longestTranscript = mergedText
+            return
+        }
 
-        guard !toAppend.isEmpty else { return }
-
+        // No useful overlap found — append with space separator.
         let needsSpace = !longestTranscript.hasSuffix(" ")
-            && !toAppend.hasPrefix(" ")
-            && !".,;:!?".contains(toAppend.first ?? " ")
+            && !newText.hasPrefix(" ")
+            && !".,;:!?".contains(newText.first ?? " ")
         let separator = needsSpace ? " " : ""
-        longestTranscript += separator + toAppend
+        longestTranscript += separator + newText
+        Logger.app.debug("Append (no overlap): \(newText.count) chars")
+    }
 
-        Logger.app.debug("Append: overlap=\(overlap), appended \(toAppend.count) chars")
+    /// Token-level overlap merge. Looks for the longest sequence of words
+    /// that overlap between END of canonical and START of new text. If found,
+    /// returns canonical's prefix (everything before the overlap) plus the
+    /// full new text (which contains updated/corrected words).
+    ///
+    /// This handles cases like:
+    ///   canonical: "20A 240V 2P breakers Using 2-#12G and 1k"
+    ///   new:       "Using 2-#12G and 1-#10G"
+    ///   3-word overlap: "Using 2-#12G and"
+    ///   merged:    "20A 240V 2P breakers Using 2-#12G and 1-#10G"
+    ///
+    /// Words are compared case-insensitively. Returns nil if no overlap.
+    private func mergeWithTokenOverlap(canonical: String, new: String) -> String? {
+        let canonicalTokens = tokenize(canonical)
+        let newTokens = tokenize(new)
+        let maxOverlap = min(canonicalTokens.count, newTokens.count)
+        guard maxOverlap > 0 else { return nil }
+
+        // Try longest possible overlap first
+        for k in (1...maxOverlap).reversed() {
+            let canonicalSuffix = canonicalTokens.suffix(k).map { $0.lowercased() }
+            let newPrefix = newTokens.prefix(k).map { $0.lowercased() }
+            if canonicalSuffix == newPrefix {
+                // Found k-word overlap. Take canonical tokens before overlap, append new text.
+                let prefixTokens = canonicalTokens.prefix(canonicalTokens.count - k)
+                let prefix = prefixTokens.joined(separator: " ")
+                let separator = prefix.isEmpty ? "" : " "
+                Logger.app.debug("Token overlap merge: \(k) words")
+                return prefix + separator + new
+            }
+        }
+        return nil
+    }
+
+    private func tokenize(_ s: String) -> [String] {
+        return s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     }
 
     /// Diffs the document against longestTranscript and types the changes.
@@ -283,26 +338,6 @@ final class DictationViewModel {
             if aChars[i] != bChars[i] { return i }
         }
         return minLen
-    }
-
-    private func caseInsensitiveSuffixPrefixOverlap(suffixOf a: String, prefixOf b: String) -> Int {
-        let aL = Array(a.lowercased())
-        let bL = Array(b.lowercased())
-        let maxLen = min(aL.count, bL.count)
-        guard maxLen > 0 else { return 0 }
-
-        // Try longest overlap first
-        for len in (1...maxLen).reversed() {
-            var matches = true
-            for i in 0..<len {
-                if aL[aL.count - len + i] != bL[i] {
-                    matches = false
-                    break
-                }
-            }
-            if matches { return len }
-        }
-        return 0
     }
 
     // MARK: - Polish and Replace
