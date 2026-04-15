@@ -19,6 +19,13 @@ final class SpeechTranscriptionService: @unchecked Sendable {
     /// the audio thread could see a nil request mid-swap and drop frames.
     private let stateLock = NSLock()
 
+    /// Generation counter — incremented on every task creation.
+    /// Each callback captures its own generation. If the current generation
+    /// has moved past the callback's generation, the callback is from a stale
+    /// task and must be ignored. Prevents cascading swaps from old tasks
+    /// firing terminal callbacks after they've been replaced.
+    private var taskGeneration: Int = 0
+
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var continuation: AsyncStream<TranscriptionUpdate>.Continuation?
@@ -92,8 +99,13 @@ final class SpeechTranscriptionService: @unchecked Sendable {
 
         // Create the FIRST recognition request BEFORE installing the audio tap.
         // This ensures the tap always has a request to feed audio into.
+        stateLock.lock()
+        taskGeneration = 1
+        let firstGen = taskGeneration
+        stateLock.unlock()
+
         let firstRequest = createNewRequest()
-        let firstTask = startTask(for: firstRequest)
+        let firstTask = startTask(for: firstRequest, generation: firstGen)
 
         stateLock.lock()
         self.recognitionRequest = firstRequest
@@ -142,9 +154,21 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         return request
     }
 
-    private func startTask(for request: SFSpeechAudioBufferRecognitionRequest) -> SFSpeechRecognitionTask? {
+    private func startTask(for request: SFSpeechAudioBufferRecognitionRequest, generation: Int) -> SFSpeechRecognitionTask? {
         return speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
+
+            // Check if this callback is from the CURRENT task or a stale one.
+            // If a newer task has been created since this one was started,
+            // ignore all callbacks from this old task — including its terminal
+            // error/cancellation. This is what prevents cascading swaps.
+            self.stateLock.lock()
+            let currentGen = self.taskGeneration
+            self.stateLock.unlock()
+            guard generation == currentGen else {
+                Logger.transcription.debug("Ignoring callback from stale task (gen \(generation) vs current \(currentGen))")
+                return
+            }
 
             if let result {
                 let text = result.bestTranscription.formattedString
@@ -157,12 +181,9 @@ final class SpeechTranscriptionService: @unchecked Sendable {
                     self.accumulatedTranscript += text
                     self.continuation?.yield(.final_(self.accumulatedTranscript))
 
-                    // The task is DONE after isFinal. Swap to a new one
-                    // WITHOUT a gap — create new request first, then atomically
-                    // swap. The audio tap will feed audio to the new request
-                    // as soon as we publish it.
+                    // Task is done after isFinal. Swap to a new one.
                     if self.isRunning {
-                        self.swapToNewRequest(oldTask: self.recognitionTask)
+                        self.swapToNewRequest()
                     }
                 } else {
                     var fullText = self.accumulatedTranscript
@@ -176,25 +197,12 @@ final class SpeechTranscriptionService: @unchecked Sendable {
 
             if let error {
                 let nsError = error as NSError
-                Logger.transcription.debug("Task ended (\(nsError.domain) \(nsError.code))")
+                Logger.transcription.debug("Task gen \(generation) ended: \(nsError.domain) \(nsError.code)")
 
-                // Don't restart on errors during shutdown
                 guard self.isRunning else { return }
 
-                // Check if this task is still the current one. If we already
-                // swapped, ignore this terminal callback from the old task.
-                self.stateLock.lock()
-                let isCurrentTask = (self.recognitionTask != nil)
-                self.stateLock.unlock()
-
-                if !isCurrentTask {
-                    // We already swapped — this is the old task dying. Ignore.
-                    return
-                }
-
-                // The current task died unexpectedly (e.g. no-speech timeout).
-                // Restart it.
-                self.swapToNewRequest(oldTask: self.recognitionTask)
+                // Current task died (timeout, no speech, etc.). Restart.
+                self.swapToNewRequest()
             }
         }
     }
@@ -202,14 +210,23 @@ final class SpeechTranscriptionService: @unchecked Sendable {
     /// Atomically swaps to a new recognition request. The audio tap will
     /// see the new request immediately on its next read and feed audio to it.
     /// There is NO gap where audio could be lost.
-    private func swapToNewRequest(oldTask: SFSpeechRecognitionTask?) {
+    ///
+    /// Bumps taskGeneration so any stale callbacks from the old task (including
+    /// its terminal error after cancel) will be ignored.
+    private func swapToNewRequest() {
         guard isRunning else { return }
 
-        // Create the new request and start its task BEFORE swapping.
-        // This way the new task is ready to receive audio the moment we
-        // publish it via the lock.
+        // Bump generation FIRST — any in-flight callbacks from the old task
+        // will see the new generation and bail out.
+        stateLock.lock()
+        taskGeneration += 1
+        let newGen = taskGeneration
+        let oldTask = self.recognitionTask
+        stateLock.unlock()
+
+        // Create the new request and start its task with the new generation.
         let newRequest = createNewRequest()
-        let newTask = startTask(for: newRequest)
+        let newTask = startTask(for: newRequest, generation: newGen)
 
         // Atomic swap: from this point on, the audio tap feeds the new request.
         stateLock.lock()
@@ -217,7 +234,7 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         self.recognitionTask = newTask
         stateLock.unlock()
 
-        // Old task is already terminated (isFinal fired or error). Just nil out.
+        // Old task: cancel for cleanup. Its callbacks are now stale and will be ignored.
         oldTask?.cancel()
     }
 
