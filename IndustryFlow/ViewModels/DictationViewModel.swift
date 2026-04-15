@@ -87,13 +87,30 @@ final class DictationViewModel {
         appState.isDictating = true
         Logger.app.info("Dictation started — \(self.appState.selectedProfile.name) / \(self.appState.selectedFormat.name)")
 
-        // Play "ready" sound to give the user a clear "begin speaking" cue.
-        // Uses AudioToolbox (more reliable than NSSound for system sounds).
+        // Play "ready" sound BEFORE starting audio capture.
+        // This way:
+        // 1. The Tink sound is NOT captured by the mic (would confuse the recognizer)
+        // 2. The user hears the cue and knows to wait briefly
+        // 3. By the time audio capture begins, the system is ready
         AudioServicesPlaySystemSound(Self.startSoundID)
 
         let hints = appState.allVocabularyHints
-        let stream = transcriptionService.startTranscription(vocabularyHints: hints)
 
+        // Delay audio capture start by ~180ms so the Tink finishes playing and
+        // doesn't end up in the recognition buffer. The user is naturally waiting
+        // anyway because they hear the Tink.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000) // 180ms
+
+            await MainActor.run {
+                guard let self, self.appState.isDictating else { return }
+                let stream = self.transcriptionService.startTranscription(vocabularyHints: hints)
+                self.consumeTranscriptionStream(stream)
+            }
+        }
+    }
+
+    private func consumeTranscriptionStream(_ stream: AsyncStream<TranscriptionUpdate>) {
         transcriptionTask = Task { [weak self] in
             for await update in stream {
                 guard let self else { break }

@@ -144,12 +144,13 @@ final class SpeechTranscriptionService: @unchecked Sendable {
         audioEngine.prepare()
         try audioEngine.start()
 
-        // Seed the buffer with ~400ms of silence to warm up the recognizer's VAD.
-        // Without this, the first words spoken can be mistakenly classified as
-        // background noise and dropped from the transcript.
-        prependSilenceWarmup(format: recordingFormat, durationMS: 400)
+        // Seed the buffer with ~200ms of silence to help the recognizer's VAD
+        // calibrate to the noise floor. Combined with the 180ms delay before
+        // audio capture starts (in DictationViewModel), this gives the
+        // recognizer ~380ms of total warmup before any user speech arrives.
+        prependSilenceWarmup(format: recordingFormat, durationMS: 200)
 
-        Logger.transcription.info("Audio engine started (with VAD warmup)")
+        Logger.transcription.info("Audio engine started (200ms VAD warmup)")
     }
 
     /// Prepends silence buffers to allBuffers so the recognizer has settling time.
