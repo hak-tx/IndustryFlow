@@ -113,8 +113,54 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         """
     )
 
+    static let drawingNotes = WritingFormat(
+        id: "drawing_notes",
+        name: "Drawing Notes",
+        icon: "ruler",
+        promptFragment: """
+        Format as compact engineering drawing notes using standard industry abbreviations. \
+        This is the shorthand used on electrical, mechanical, structural, and construction \
+        drawings. Convert verbose speech into terse technical notation while preserving \
+        ALL technical content.
+
+        ELECTRICAL abbreviations (apply when context is electrical):
+        - "amp" or "amps" or "amperes" → "A" (e.g. "20 amp" → "20A")
+        - "volt" or "volts" → "V" (e.g. "240 volts" → "240V")
+        - "single phase" → "1P"; "two phase" → "2P"; "three phase" → "3P"
+        - "kilowatt" → "kW"; "horsepower" → "HP"; "watts" → "W"
+        - "kVA" stays "kVA"; "KAIC" stays "KAIC"; "AFCI"/"GFCI" stay as-is
+        - "gauge" → "G"; "number X gauge" → "#XG" (e.g. "12 gauge" → "#12G")
+        - "number X AWG" → "#X AWG"
+        - "two of number 12 gauge" → "2-#12G"; "one number 10 gauge" → "1-#10G"
+        - "inch conduit" → "\" C" (e.g. "1 inch conduit" → "1\\" C")
+        - "EMT", "PVC", "RMC", "GRC" stay as-is
+        - "breaker" stays "breaker"; "panel" stays "panel"
+
+        MECHANICAL / HVAC abbreviations:
+        - "CFM", "BTU", "PSI", "RPM", "SEER", "EER" stay as acronyms
+        - "feet per minute" → "FPM"; "gallons per minute" → "GPM"
+        - "pounds per square inch" → "PSI"
+        - "inches water column" → "\" WC"
+        - "degrees fahrenheit" → "°F"; "degrees celsius" → "°C"
+
+        CONSTRUCTION / DIMENSIONS:
+        - "X feet" → "X'"; "X inches" → "X\\""
+        - "X by Y" → "X × Y"; "X by Y by Z" → "X × Y × Z"
+        - "on center" → "O.C."; "typical" → "TYP."; "equal" → "EQ."
+        - "approximately" → "APPROX."; "maximum" → "MAX."; "minimum" → "MIN."
+        - "reference" → "REF."; "required" → "REQ'D"
+
+        GENERAL NOTATION RULES:
+        - Use commas to separate specifications (e.g. "20A, 240V, 2P")
+        - Combine related items onto single lines
+        - Preserve ALL numbers and technical content exactly
+        - Do NOT drop any specifications the speaker mentioned
+        - Use standard punctuation for dimensions: feet (') and inches (")
+        """
+    )
+
     static let allFormats: [WritingFormat] = [
         .general, .email, .socialMedia, .notes, .documentation,
-        .chat, .letter, .report, .code
+        .chat, .letter, .report, .code, .drawingNotes
     ]
 }

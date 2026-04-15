@@ -144,9 +144,21 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             "hydraulics", "pneumatics", "Bernoulli", "Reynolds number",
             "laminar", "turbulent", "viscosity", "coefficient of friction",
             "torque", "RPM", "horsepower", "kilowatt", "megapascal",
+            // Electrical (often needed in engineering/construction drawing notes)
+            "amp", "amps", "amperes", "volt", "volts", "watt", "kilowatt", "kVA",
+            "single phase", "two phase", "three phase",
+            "KAIC", "AIC rating", "breaker", "panel", "panelboard", "switchgear",
+            "AFCI", "GFCI", "GFI", "RCD", "disconnect", "feeder",
+            "gauge", "AWG", "MCM", "kcmil",
+            "conduit", "EMT", "PVC", "RMC", "GRC", "flex conduit", "IMC",
+            "bus bar", "neutral", "ground", "hot", "phase",
+            "#4 AWG", "#6 AWG", "#8 AWG", "#10 AWG", "#12 AWG", "#14 AWG",
             // Process
             "commissioning", "decommissioning", "calibration", "P&ID",
-            "ISO", "ASME", "ANSI", "ASTM", "IEEE", "NFPA", "UL"
+            "ISO", "ASME", "ANSI", "ASTM", "IEEE", "NFPA", "UL", "NEC",
+            // Drawing notation
+            "on center", "typical", "as shown", "as required", "as noted",
+            "per detail", "per plan", "per specification"
         ]
     )
 
@@ -481,7 +493,17 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             // Scheduling
             "critical path", "CPM", "Gantt chart", "baseline schedule",
             "float", "slack", "milestone", "predecessor", "successor",
-            "Primavera", "P6", "Procore", "Bluebeam", "PlanGrid"
+            "Primavera", "P6", "Procore", "Bluebeam", "PlanGrid",
+            // Electrical terms (for drawing notes)
+            "amp", "amps", "volt", "volts", "kVA", "KAIC", "breaker", "panel",
+            "single phase", "two phase", "three phase", "AFCI", "GFCI",
+            "gauge", "AWG", "conduit", "EMT", "PVC", "RMC",
+            "#12 AWG", "#10 AWG", "#8 AWG", "#6 AWG", "#4 AWG",
+            // Drawing notation shorthand
+            "typical", "on center", "O.C.", "T.Y.P.", "TYP",
+            "as shown", "as noted", "as required", "per plan", "per detail",
+            "approximately", "APPROX", "maximum", "MAX", "minimum", "MIN",
+            "required", "reference", "equal", "EQ"
         ]
     )
 
