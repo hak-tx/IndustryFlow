@@ -105,14 +105,16 @@ final class AccessibilityService {
                 continue
             }
 
+            // CRITICAL: Set unicode string ONLY on keyDown.
+            // Setting it on both keyDown AND keyUp causes the system to insert
+            // the text TWICE — that's the source of "isisis" duplication.
             keyDown.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
-            keyUp.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
 
             keyDown.post(tap: .cgSessionEventTap)
             keyUp.post(tap: .cgSessionEventTap)
 
             offset += chunkSize
-            usleep(1_500) // 1.5ms between chunks for reliability
+            usleep(2_500) // 2.5ms between chunks for reliable processing
         }
     }
 
