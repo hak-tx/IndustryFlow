@@ -1,11 +1,48 @@
 import Foundation
 
+/// A common mistranscription pair: what the recognizer typically HEARS
+/// vs. the CORRECT term. Fed to Claude during polishing so it knows to
+/// fix these specific common errors.
+struct CorrectionPair: Codable, Hashable {
+    let heard: String
+    let correct: String
+
+    init(_ heard: String, _ correct: String) {
+        self.heard = heard
+        self.correct = correct
+    }
+}
+
 struct IndustryProfile: Identifiable, Codable, Hashable {
     let id: String
     let name: String
     let icon: String
     let systemPrompt: String
     let vocabularyHints: [String]
+    var commonMishearings: [CorrectionPair] = []
+
+    /// Custom initializer with default for commonMishearings (backward compat)
+    init(id: String, name: String, icon: String, systemPrompt: String,
+         vocabularyHints: [String], commonMishearings: [CorrectionPair] = []) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.systemPrompt = systemPrompt
+        self.vocabularyHints = vocabularyHints
+        self.commonMishearings = commonMishearings
+    }
+
+    /// Formatted correction list for inclusion in Claude's system prompt.
+    /// Returns empty string if no corrections defined.
+    var mishearingsPromptFragment: String {
+        guard !commonMishearings.isEmpty else { return "" }
+
+        var lines = ["", "COMMON MISTRANSCRIPTIONS — fix these specific recognizer errors:"]
+        for pair in commonMishearings {
+            lines.append("- \"\(pair.heard)\" → \"\(pair.correct)\"")
+        }
+        return lines.joined(separator: "\n")
+    }
 
     static let general = IndustryProfile(
         id: "general",
@@ -59,6 +96,110 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             "force majeure", "liquidated damages", "punitive damages",
             "class action", "summary judgment", "default judgment",
             "settlement", "mediation", "plea bargain", "arraignment"
+        ],
+        commonMishearings: [
+            // Latin & legal phrases the recognizer botches
+            CorrectionPair("force measure", "force majeure"),
+            CorrectionPair("force major", "force majeure"),
+            CorrectionPair("force mature", "force majeure"),
+            CorrectionPair("voir deer", "voir dire"),
+            CorrectionPair("voir dear", "voir dire"),
+            CorrectionPair("vore deer", "voir dire"),
+            CorrectionPair("res judicata", "res judicata"),
+            CorrectionPair("res judacada", "res judicata"),
+            CorrectionPair("res judacata", "res judicata"),
+            CorrectionPair("rest judicata", "res judicata"),
+            CorrectionPair("starry decisis", "stare decisis"),
+            CorrectionPair("stare decisis", "stare decisis"),
+            CorrectionPair("starey decisis", "stare decisis"),
+            CorrectionPair("mens ray", "mens rea"),
+            CorrectionPair("mens rea", "mens rea"),
+            CorrectionPair("men's rea", "mens rea"),
+            CorrectionPair("actos rays", "actus reus"),
+            CorrectionPair("actus rays", "actus reus"),
+            CorrectionPair("actus rea", "actus reus"),
+            CorrectionPair("habias corpus", "habeas corpus"),
+            CorrectionPair("habeus corpus", "habeas corpus"),
+            CorrectionPair("habeas corpus", "habeas corpus"),
+            CorrectionPair("to peena", "subpoena"),
+            CorrectionPair("subpena", "subpoena"),
+            CorrectionPair("amici curiae", "amicus curiae"),
+            CorrectionPair("amicus curiae", "amicus curiae"),
+            CorrectionPair("amicas curiae", "amicus curiae"),
+            CorrectionPair("pro bo no", "pro bono"),
+            CorrectionPair("probono", "pro bono"),
+            CorrectionPair("prima fashie", "prima facie"),
+            CorrectionPair("prima fasha", "prima facie"),
+            CorrectionPair("prima facia", "prima facie"),
+            CorrectionPair("a stoppel", "estoppel"),
+            CorrectionPair("estopple", "estoppel"),
+            CorrectionPair("indemnification", "indemnification"),
+            CorrectionPair("in dem nification", "indemnification"),
+            CorrectionPair("tort feasor", "tortfeasor"),
+            CorrectionPair("tortfeezer", "tortfeasor"),
+            CorrectionPair("pro see", "pro se"),
+            CorrectionPair("ex party", "ex parte"),
+            CorrectionPair("ex partey", "ex parte"),
+            CorrectionPair("nolo contend airy", "nolo contendere"),
+            CorrectionPair("no lo contend ray", "nolo contendere"),
+            CorrectionPair("juris prudence", "jurisprudence"),
+            CorrectionPair("jure prudence", "jurisprudence"),
+            CorrectionPair("ad hawk", "ad hoc"),
+            CorrectionPair("bonafide", "bona fide"),
+            CorrectionPair("sui generous", "sui generis"),
+            CorrectionPair("ultra veerus", "ultra vires"),
+            CorrectionPair("ultra vyrus", "ultra vires"),
+            CorrectionPair("caveat empt or", "caveat emptor"),
+            CorrectionPair("caveat empty or", "caveat emptor"),
+            CorrectionPair("inter alia", "inter alia"),
+            CorrectionPair("ipso fact oh", "ipso facto"),
+            CorrectionPair("de jury", "de jure"),
+            CorrectionPair("de jeery", "de jure"),
+            CorrectionPair("the facto", "de facto"),
+            CorrectionPair("dee facto", "de facto"),
+            CorrectionPair("in cam ra", "in camera"),
+            CorrectionPair("demand a mus", "mandamus"),
+            CorrectionPair("man damus", "mandamus"),
+            CorrectionPair("sir she or rary", "certiorari"),
+            CorrectionPair("cert your rary", "certiorari"),
+            CorrectionPair("certiorary", "certiorari"),
+            CorrectionPair("per claim", "per curiam"),
+            CorrectionPair("per cure ee am", "per curiam"),
+            CorrectionPair("pellet judge", "appellate judge"),
+            CorrectionPair("a pellet judge", "appellate judge"),
+            CorrectionPair("a pellet court", "appellate court"),
+            CorrectionPair("appel ate", "appellate"),
+            CorrectionPair("trespass", "trespass"),
+            CorrectionPair("tres pass", "trespass"),
+            CorrectionPair("a salt", "assault"),
+            CorrectionPair("battery and assault", "assault and battery"),
+            CorrectionPair("dee position", "deposition"),
+            CorrectionPair("depo nant", "deponent"),
+            CorrectionPair("affidavit", "affidavit"),
+            CorrectionPair("affy david", "affidavit"),
+            CorrectionPair("affidavid", "affidavit"),
+            CorrectionPair("interrogator ease", "interrogatories"),
+            CorrectionPair("interrog atories", "interrogatories"),
+            CorrectionPair("interrogator reese", "interrogatories"),
+            CorrectionPair("preponderance", "preponderance"),
+            CorrectionPair("prepunder ance", "preponderance"),
+            CorrectionPair("punder ance", "preponderance"),
+            CorrectionPair("dee fame ation", "defamation"),
+            CorrectionPair("def ammatory", "defamatory"),
+            CorrectionPair("malicious prosecution", "malicious prosecution"),
+            CorrectionPair("malishus prosecution", "malicious prosecution"),
+            CorrectionPair("liquidated damage", "liquidated damages"),
+            CorrectionPair("liquid ated", "liquidated"),
+            CorrectionPair("specific performance", "specific performance"),
+            CorrectionPair("hereinafter", "hereinafter"),
+            CorrectionPair("here in after", "hereinafter"),
+            CorrectionPair("here to fore", "heretofore"),
+            CorrectionPair("notwith standing", "notwithstanding"),
+            CorrectionPair("not with standing", "notwithstanding"),
+            CorrectionPair("there in", "therein"),
+            CorrectionPair("where as", "whereas"),
+            CorrectionPair("where in", "wherein"),
+            CorrectionPair("where to", "whereto")
         ]
     )
 
@@ -104,6 +245,82 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             "provision", "contingency", "goodwill", "intangible asset",
             "fiduciary", "fiscal year", "fiscal quarter", "year over year",
             "budget variance", "forecast", "pro forma", "cap table", "dilution"
+        ],
+        commonMishearings: [
+            CorrectionPair("gap", "GAAP"),
+            CorrectionPair("g a a p", "GAAP"),
+            CorrectionPair("eye f r s", "IFRS"),
+            CorrectionPair("ifrs", "IFRS"),
+            CorrectionPair("sox", "SOX"),
+            CorrectionPair("Sarbanes oxley", "Sarbanes-Oxley"),
+            CorrectionPair("FASB", "FASB"),
+            CorrectionPair("f a s b", "FASB"),
+            CorrectionPair("a c p a", "AICPA"),
+            CorrectionPair("p c a o b", "PCAOB"),
+            CorrectionPair("ASC 606", "ASC 606"),
+            CorrectionPair("a s c six oh six", "ASC 606"),
+            CorrectionPair("ASC 842", "ASC 842"),
+            CorrectionPair("ten K", "10-K"),
+            CorrectionPair("ten Q", "10-Q"),
+            CorrectionPair("eight K", "8-K"),
+            CorrectionPair("ebitda", "EBITDA"),
+            CorrectionPair("ee bit duh", "EBITDA"),
+            CorrectionPair("ee bit dah", "EBITDA"),
+            CorrectionPair("ebit", "EBIT"),
+            CorrectionPair("R O I", "ROI"),
+            CorrectionPair("R O E", "ROE"),
+            CorrectionPair("R O A", "ROA"),
+            CorrectionPair("E P S", "EPS"),
+            CorrectionPair("p e ratio", "P/E ratio"),
+            CorrectionPair("price to earnings", "P/E"),
+            CorrectionPair("amortization", "amortization"),
+            CorrectionPair("a more tization", "amortization"),
+            CorrectionPair("depreciation", "depreciation"),
+            CorrectionPair("dee preciation", "depreciation"),
+            CorrectionPair("accruel", "accrual"),
+            CorrectionPair("accross basis", "accrual basis"),
+            CorrectionPair("accounts receivable", "accounts receivable"),
+            CorrectionPair("a r", "A/R"),
+            CorrectionPair("accounts payable", "accounts payable"),
+            CorrectionPair("a p", "A/P"),
+            CorrectionPair("g l", "GL"),
+            CorrectionPair("general ledger", "general ledger"),
+            CorrectionPair("trial balance", "trial balance"),
+            CorrectionPair("cogs", "COGS"),
+            CorrectionPair("c o g s", "COGS"),
+            CorrectionPair("cost of goods sold", "COGS"),
+            CorrectionPair("s g and a", "SG&A"),
+            CorrectionPair("S G A", "SG&A"),
+            CorrectionPair("MRR", "MRR"),
+            CorrectionPair("m r r", "MRR"),
+            CorrectionPair("ARR", "ARR"),
+            CorrectionPair("a r r", "ARR"),
+            CorrectionPair("CAC", "CAC"),
+            CorrectionPair("cak", "CAC"),
+            CorrectionPair("LTV", "LTV"),
+            CorrectionPair("l t v", "LTV"),
+            CorrectionPair("p and l", "P&L"),
+            CorrectionPair("profit and loss", "P&L"),
+            CorrectionPair("year over year", "YoY"),
+            CorrectionPair("y o y", "YoY"),
+            CorrectionPair("quarter over quarter", "QoQ"),
+            CorrectionPair("q o q", "QoQ"),
+            CorrectionPair("month over month", "MoM"),
+            CorrectionPair("cap ex", "CapEx"),
+            CorrectionPair("op ex", "OpEx"),
+            CorrectionPair("f t e", "FTE"),
+            CorrectionPair("full time equivalent", "FTE"),
+            CorrectionPair("w 2", "W-2"),
+            CorrectionPair("w two", "W-2"),
+            CorrectionPair("w 9", "W-9"),
+            CorrectionPair("w nine", "W-9"),
+            CorrectionPair("ten ninety nine", "1099"),
+            CorrectionPair("schedule c", "Schedule C"),
+            CorrectionPair("schedule k 1", "Schedule K-1"),
+            CorrectionPair("AMT", "AMT"),
+            CorrectionPair("a m t", "AMT"),
+            CorrectionPair("net operating loss", "NOL"),
+            CorrectionPair("n o l", "NOL")
         ]
     )
 
@@ -159,6 +376,90 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             // Drawing notation
             "on center", "typical", "as shown", "as required", "as noted",
             "per detail", "per plan", "per specification"
+        ],
+        commonMishearings: [
+            // Electrical specs commonly mangled
+            CorrectionPair("KIC", "KAIC"),
+            CorrectionPair("kayak", "KAIC"),
+            CorrectionPair("k a i c", "KAIC"),
+            CorrectionPair("kay i c", "KAIC"),
+            CorrectionPair("AFC I", "AFCI"),
+            CorrectionPair("a f c i", "AFCI"),
+            CorrectionPair("GFC I", "GFCI"),
+            CorrectionPair("g f c i", "GFCI"),
+            CorrectionPair("GFI", "GFCI"),
+            CorrectionPair("AWG", "AWG"),
+            CorrectionPair("a w g", "AWG"),
+            CorrectionPair("MCM", "MCM"),
+            CorrectionPair("k c mil", "kcmil"),
+            CorrectionPair("two phase", "two-phase"),
+            CorrectionPair("three phase", "three-phase"),
+            CorrectionPair("single phase", "single-phase"),
+
+            // HVAC abbreviations
+            CorrectionPair("BTU", "BTU"),
+            CorrectionPair("b t u", "BTU"),
+            CorrectionPair("CFM", "CFM"),
+            CorrectionPair("c f m", "CFM"),
+            CorrectionPair("see fm", "CFM"),
+            CorrectionPair("seize them", "CFM"),
+            CorrectionPair("SEER", "SEER"),
+            CorrectionPair("EER", "EER"),
+            CorrectionPair("AFUE", "AFUE"),
+            CorrectionPair("a foo", "AFUE"),
+            CorrectionPair("delta T", "ΔT"),
+            CorrectionPair("delta tea", "ΔT"),
+            CorrectionPair("delta P", "ΔP"),
+            CorrectionPair("super heat", "superheat"),
+            CorrectionPair("sub cooling", "subcooling"),
+            CorrectionPair("en thal pee", "enthalpy"),
+            CorrectionPair("entropy", "entropy"),
+
+            // Refrigerants
+            CorrectionPair("r 410 a", "R-410A"),
+            CorrectionPair("r four ten a", "R-410A"),
+            CorrectionPair("r 22", "R-22"),
+            CorrectionPair("r twenty two", "R-22"),
+            CorrectionPair("r 134 a", "R-134A"),
+
+            // Structural
+            CorrectionPair("PSI", "PSI"),
+            CorrectionPair("p s i", "PSI"),
+            CorrectionPair("ribar", "rebar"),
+            CorrectionPair("re bar", "rebar"),
+            CorrectionPair("I beam", "I-beam"),
+            CorrectionPair("eye beam", "I-beam"),
+            CorrectionPair("W flange", "W-flange"),
+            CorrectionPair("HSS", "HSS"),
+            CorrectionPair("h s s", "HSS"),
+            CorrectionPair("modulus", "modulus"),
+            CorrectionPair("Reynolds number", "Reynolds number"),
+            CorrectionPair("renalds number", "Reynolds number"),
+            CorrectionPair("burn ooly", "Bernoulli"),
+            CorrectionPair("burn newly", "Bernoulli"),
+            CorrectionPair("la min are", "laminar"),
+            CorrectionPair("turbulent", "turbulent"),
+
+            // Software/CAD
+            CorrectionPair("auto cad", "AutoCAD"),
+            CorrectionPair("solid works", "SolidWorks"),
+            CorrectionPair("cat ee uh", "CATIA"),
+            CorrectionPair("re vit", "Revit"),
+            CorrectionPair("BIM", "BIM"),
+            CorrectionPair("FEA", "FEA"),
+            CorrectionPair("CFD", "CFD"),
+            CorrectionPair("GD and T", "GD&T"),
+            CorrectionPair("g d and t", "GD&T"),
+            CorrectionPair("p and i d", "P&ID"),
+
+            // Standards
+            CorrectionPair("a s m e", "ASME"),
+            CorrectionPair("a n s i", "ANSI"),
+            CorrectionPair("a s t m", "ASTM"),
+            CorrectionPair("ieee", "IEEE"),
+            CorrectionPair("i triple e", "IEEE"),
+            CorrectionPair("nfpa", "NFPA"),
+            CorrectionPair("n f p a", "NFPA")
         ]
     )
 
@@ -351,6 +652,132 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             "localhost", "config", "env", "dotenv", "cron job", "regex",
             "backend", "frontend", "full stack", "tech debt", "code review",
             "sprint", "standup", "retro", "kanban", "scrum", "agile"
+        ],
+        commonMishearings: [
+            // Git commands (commonly mangled)
+            CorrectionPair("get pull", "git pull"),
+            CorrectionPair("get push", "git push"),
+            CorrectionPair("get commit", "git commit"),
+            CorrectionPair("get merge", "git merge"),
+            CorrectionPair("get rebase", "git rebase"),
+            CorrectionPair("get clone", "git clone"),
+            CorrectionPair("get checkout", "git checkout"),
+            CorrectionPair("get branch", "git branch"),
+            CorrectionPair("get diff", "git diff"),
+            CorrectionPair("get stash", "git stash"),
+            CorrectionPair("get log", "git log"),
+            CorrectionPair("get reset", "git reset"),
+            CorrectionPair("get add", "git add"),
+            CorrectionPair("cherry pick", "cherry-pick"),
+            CorrectionPair("pull request", "pull request"),
+            CorrectionPair("pr review", "PR review"),
+            CorrectionPair("merge conflict", "merge conflict"),
+
+            // APIs
+            CorrectionPair("a p i", "API"),
+            CorrectionPair("rest api", "REST API"),
+            CorrectionPair("rust full", "RESTful"),
+            CorrectionPair("graph q l", "GraphQL"),
+            CorrectionPair("graphical", "GraphQL"),
+            CorrectionPair("g r p c", "gRPC"),
+            CorrectionPair("web hook", "webhook"),
+            CorrectionPair("o auth", "OAuth"),
+            CorrectionPair("j w t", "JWT"),
+            CorrectionPair("course", "CORS"),
+
+            // Architecture
+            CorrectionPair("micro services", "microservices"),
+            CorrectionPair("mono lith", "monolith"),
+            CorrectionPair("server less", "serverless"),
+            CorrectionPair("MVC", "MVC"),
+            CorrectionPair("m v c", "MVC"),
+            CorrectionPair("MVVM", "MVVM"),
+            CorrectionPair("m v v m", "MVVM"),
+            CorrectionPair("dependency injection", "dependency injection"),
+            CorrectionPair("dee pen den see", "dependency"),
+            CorrectionPair("single ton", "singleton"),
+
+            // DevOps
+            CorrectionPair("c i c d", "CI/CD"),
+            CorrectionPair("CI CD", "CI/CD"),
+            CorrectionPair("see i see d", "CI/CD"),
+            CorrectionPair("dev ops", "DevOps"),
+            CorrectionPair("Kubernet teas", "Kubernetes"),
+            CorrectionPair("kuber net teas", "Kubernetes"),
+            CorrectionPair("k 8 s", "K8s"),
+            CorrectionPair("k eights", "K8s"),
+            CorrectionPair("doc er", "Docker"),
+            CorrectionPair("doc her", "Docker"),
+            CorrectionPair("a w s", "AWS"),
+            CorrectionPair("e c 2", "EC2"),
+            CorrectionPair("ec two", "EC2"),
+            CorrectionPair("s 3", "S3"),
+            CorrectionPair("s three", "S3"),
+            CorrectionPair("g c p", "GCP"),
+            CorrectionPair("terra form", "Terraform"),
+            CorrectionPair("engine x", "NGINX"),
+            CorrectionPair("nginx", "NGINX"),
+            CorrectionPair("c d n", "CDN"),
+            CorrectionPair("d n s", "DNS"),
+
+            // Languages & frameworks
+            CorrectionPair("Java script", "JavaScript"),
+            CorrectionPair("type script", "TypeScript"),
+            CorrectionPair("py thon", "Python"),
+            CorrectionPair("c plus plus", "C++"),
+            CorrectionPair("c sharp", "C#"),
+            CorrectionPair("dot net", ".NET"),
+            CorrectionPair("react js", "React"),
+            CorrectionPair("react", "React"),
+            CorrectionPair("v u", "Vue"),
+            CorrectionPair("vu jay s", "Vue.js"),
+            CorrectionPair("note js", "Node.js"),
+            CorrectionPair("node js", "Node.js"),
+            CorrectionPair("n p m", "npm"),
+            CorrectionPair("yarn", "yarn"),
+            CorrectionPair("pip", "pip"),
+
+            // Databases
+            CorrectionPair("post grass", "PostgreSQL"),
+            CorrectionPair("post gress", "PostgreSQL"),
+            CorrectionPair("post gres", "PostgreSQL"),
+            CorrectionPair("my sequel", "MySQL"),
+            CorrectionPair("my s q l", "MySQL"),
+            CorrectionPair("mongo D B", "MongoDB"),
+            CorrectionPair("mongo db", "MongoDB"),
+            CorrectionPair("red is", "Redis"),
+            CorrectionPair("sequel light", "SQLite"),
+            CorrectionPair("no sequel", "NoSQL"),
+
+            // Code concepts
+            CorrectionPair("a sing", "async"),
+            CorrectionPair("a wait", "await"),
+            CorrectionPair("call back", "callback"),
+            CorrectionPair("prom is", "Promise"),
+            CorrectionPair("clo sure", "closure"),
+            CorrectionPair("lambda function", "lambda function"),
+            CorrectionPair("local host", "localhost"),
+            CorrectionPair("end point", "endpoint"),
+            CorrectionPair("front end", "frontend"),
+            CorrectionPair("back end", "backend"),
+            CorrectionPair("full stack", "full-stack"),
+            CorrectionPair("hash map", "hashmap"),
+            CorrectionPair("regex", "regex"),
+            CorrectionPair("reg x", "regex"),
+
+            // Process
+            CorrectionPair("stand up", "standup"),
+            CorrectionPair("retro spective", "retrospective"),
+            CorrectionPair("kan ban", "kanban"),
+            CorrectionPair("scrum master", "scrum master"),
+            CorrectionPair("user story", "user story"),
+            CorrectionPair("story points", "story points"),
+            CorrectionPair("burn down", "burndown"),
+            CorrectionPair("epic", "epic"),
+            CorrectionPair("Jira", "Jira"),
+            CorrectionPair("hera", "Jira"),
+            CorrectionPair("github", "GitHub"),
+            CorrectionPair("git hub", "GitHub")
         ]
     )
 
@@ -504,6 +931,101 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             "as shown", "as noted", "as required", "per plan", "per detail",
             "approximately", "APPROX", "maximum", "MAX", "minimum", "MIN",
             "required", "reference", "equal", "EQ"
+        ],
+        commonMishearings: [
+            // Project documents
+            CorrectionPair("RFI", "RFI"),
+            CorrectionPair("r f i", "RFI"),
+            CorrectionPair("our f i", "RFI"),
+            CorrectionPair("change order", "change order"),
+            CorrectionPair("punch list", "punch list"),
+            CorrectionPair("submittal", "submittal"),
+            CorrectionPair("sub midal", "submittal"),
+            CorrectionPair("substantial completion", "substantial completion"),
+            CorrectionPair("notice to proceed", "notice to proceed"),
+            CorrectionPair("NTP", "NTP"),
+            CorrectionPair("certificate of occupancy", "certificate of occupancy"),
+            CorrectionPair("as built", "as-built"),
+            CorrectionPair("shop drawing", "shop drawing"),
+
+            // Contracts
+            CorrectionPair("GMP", "GMP"),
+            CorrectionPair("g m p", "GMP"),
+            CorrectionPair("guaranteed maximum price", "guaranteed maximum price"),
+            CorrectionPair("AIA", "AIA"),
+            CorrectionPair("a i a", "AIA"),
+            CorrectionPair("Davis Bacon", "Davis-Bacon"),
+            CorrectionPair("davis bacon", "Davis-Bacon"),
+            CorrectionPair("retainage", "retainage"),
+            CorrectionPair("re tay nage", "retainage"),
+            CorrectionPair("lien waiver", "lien waiver"),
+            CorrectionPair("lean waiver", "lien waiver"),
+
+            // Roles
+            CorrectionPair("super in tendant", "superintendent"),
+            CorrectionPair("super intendant", "superintendent"),
+            CorrectionPair("for man", "foreman"),
+            CorrectionPair("subcontractor", "subcontractor"),
+            CorrectionPair("sub contractor", "subcontractor"),
+
+            // Structural / site
+            CorrectionPair("ribar", "rebar"),
+            CorrectionPair("re bar", "rebar"),
+            CorrectionPair("form work", "formwork"),
+            CorrectionPair("foundation", "foundation"),
+            CorrectionPair("footing", "footing"),
+            CorrectionPair("caisson", "caisson"),
+            CorrectionPair("kay son", "caisson"),
+            CorrectionPair("cay son", "caisson"),
+            CorrectionPair("post tension", "post-tensioned"),
+            CorrectionPair("post tensioned", "post-tensioned"),
+            CorrectionPair("til tup", "tilt-up"),
+            CorrectionPair("tilt up", "tilt-up"),
+            CorrectionPair("pre cast", "precast"),
+            CorrectionPair("slab on grade", "slab on grade"),
+            CorrectionPair("grade beam", "grade beam"),
+            CorrectionPair("framing", "framing"),
+            CorrectionPair("joist", "joist"),
+            CorrectionPair("joyst", "joist"),
+            CorrectionPair("truss", "truss"),
+
+            // Trades & systems
+            CorrectionPair("HVAC", "HVAC"),
+            CorrectionPair("h v a c", "HVAC"),
+            CorrectionPair("MEP", "MEP"),
+            CorrectionPair("m e p", "MEP"),
+            CorrectionPair("me ep", "MEP"),
+
+            // Codes
+            CorrectionPair("IBC", "IBC"),
+            CorrectionPair("i b c", "IBC"),
+            CorrectionPair("IRC", "IRC"),
+            CorrectionPair("i r c", "IRC"),
+            CorrectionPair("NEC", "NEC"),
+            CorrectionPair("n e c", "NEC"),
+            CorrectionPair("OSHA", "OSHA"),
+            CorrectionPair("oh shah", "OSHA"),
+            CorrectionPair("LEED", "LEED"),
+            CorrectionPair("lead certification", "LEED certification"),
+
+            // Drawing notation
+            CorrectionPair("on center", "O.C."),
+            CorrectionPair("oh see", "O.C."),
+            CorrectionPair("typical", "TYP."),
+            CorrectionPair("approximately", "APPROX."),
+            CorrectionPair("maximum", "MAX."),
+            CorrectionPair("minimum", "MIN."),
+            CorrectionPair("required", "REQ'D"),
+
+            // Electrical (often comes up in construction notes)
+            CorrectionPair("KIC", "KAIC"),
+            CorrectionPair("kayak", "KAIC"),
+            CorrectionPair("AFC I", "AFCI"),
+            CorrectionPair("GFC I", "GFCI"),
+            CorrectionPair("GFI", "GFCI"),
+            CorrectionPair("two phase", "two-phase"),
+            CorrectionPair("three phase", "three-phase"),
+            CorrectionPair("single phase", "single-phase")
         ]
     )
 
@@ -563,6 +1085,121 @@ struct IndustryProfile: Identifiable, Codable, Hashable {
             "gastroenterology", "endocrinology", "nephrology", "oncology",
             "pediatrics", "geriatrics", "psychiatry", "dermatology",
             "ophthalmology", "otolaryngology", "ENT", "radiology", "pathology"
+        ],
+        commonMishearings: [
+            // Symptoms & conditions
+            CorrectionPair("disp nia", "dyspnea"),
+            CorrectionPair("disney uh", "dyspnea"),
+            CorrectionPair("disp neeyuh", "dyspnea"),
+            CorrectionPair("attack a cardia", "tachycardia"),
+            CorrectionPair("attacky cardia", "tachycardia"),
+            CorrectionPair("brody cardia", "bradycardia"),
+            CorrectionPair("broody cardia", "bradycardia"),
+            CorrectionPair("hyper tense ion", "hypertension"),
+            CorrectionPair("hyper tension", "hypertension"),
+            CorrectionPair("hi pot tense ion", "hypotension"),
+            CorrectionPair("hypo tension", "hypotension"),
+            CorrectionPair("a dema", "edema"),
+            CorrectionPair("ed em uh", "edema"),
+            CorrectionPair("inflame nation", "inflammation"),
+            CorrectionPair("inflam nation", "inflammation"),
+            CorrectionPair("comb worbid", "comorbid"),
+            CorrectionPair("co morbid", "comorbid"),
+            CorrectionPair("co morbidity", "comorbidity"),
+            CorrectionPair("contra indication", "contraindication"),
+            CorrectionPair("contra dictation", "contraindication"),
+            CorrectionPair("ano fee laxes", "anaphylaxis"),
+            CorrectionPair("ana fill axes", "anaphylaxis"),
+            CorrectionPair("assist tom attic", "asymptomatic"),
+            CorrectionPair("a simp tomatic", "asymptomatic"),
+            CorrectionPair("idio path ic", "idiopathic"),
+            CorrectionPair("eye dee opathic", "idiopathic"),
+            CorrectionPair("eye attic genic", "iatrogenic"),
+            CorrectionPair("ataru genic", "iatrogenic"),
+            CorrectionPair("etiology", "etiology"),
+            CorrectionPair("eat ee ology", "etiology"),
+            CorrectionPair("ah cute", "acute"),
+            CorrectionPair("malig nant", "malignant"),
+            CorrectionPair("be nine", "benign"),
+            CorrectionPair("met astatic", "metastatic"),
+            CorrectionPair("meta static", "metastatic"),
+
+            // Anatomy & positioning
+            CorrectionPair("by lateral", "bilateral"),
+            CorrectionPair("you knee lateral", "unilateral"),
+            CorrectionPair("anti error", "anterior"),
+            CorrectionPair("post air ee or", "posterior"),
+            CorrectionPair("medial", "medial"),
+            CorrectionPair("dorsel", "dorsal"),
+            CorrectionPair("ventrul", "ventral"),
+            CorrectionPair("supine", "supine"),
+            CorrectionPair("sup pine", "supine"),
+            CorrectionPair("prone position", "prone"),
+            CorrectionPair("contra lateral", "contralateral"),
+            CorrectionPair("ipsy lateral", "ipsilateral"),
+            CorrectionPair("ipsi lateral", "ipsilateral"),
+            CorrectionPair("subq", "SubQ"),
+            CorrectionPair("sub Q", "SubQ"),
+            CorrectionPair("sub cutaneous", "subcutaneous"),
+            CorrectionPair("intra venous", "intravenous"),
+            CorrectionPair("intra muscular", "intramuscular"),
+
+            // Vital signs / labs
+            CorrectionPair("trope onin", "troponin"),
+            CorrectionPair("tropo nin", "troponin"),
+            CorrectionPair("creatin in", "creatinine"),
+            CorrectionPair("creatin een", "creatinine"),
+            CorrectionPair("hemoglobin a one c", "HbA1c"),
+            CorrectionPair("hemoglobin a 1c", "HbA1c"),
+            CorrectionPair("HBA1C", "HbA1c"),
+            CorrectionPair("hep uh", "HIPAA"),
+            CorrectionPair("hippo", "HIPAA"),
+            CorrectionPair("HEPA", "HIPAA"),
+            CorrectionPair("hippa", "HIPAA"),
+            CorrectionPair("ICD 10", "ICD-10"),
+            CorrectionPair("I C D 10", "ICD-10"),
+            CorrectionPair("ICD ten", "ICD-10"),
+            CorrectionPair("MRI", "MRI"),
+            CorrectionPair("M R I", "MRI"),
+            CorrectionPair("CT scan", "CT scan"),
+            CorrectionPair("C T scan", "CT scan"),
+            CorrectionPair("EKG", "EKG"),
+            CorrectionPair("E K G", "EKG"),
+            CorrectionPair("ECG", "ECG"),
+            CorrectionPair("E C G", "ECG"),
+            CorrectionPair("echo cardiogram", "echocardiogram"),
+
+            // Medication frequency abbreviations
+            CorrectionPair("be id", "BID"),
+            CorrectionPair("bid medication", "BID medication"),
+            CorrectionPair("tid medication", "TID medication"),
+            CorrectionPair("queue id", "QID"),
+            CorrectionPair("queue HS", "QHS"),
+            CorrectionPair("queue h s", "QHS"),
+            CorrectionPair("PRN", "PRN"),
+            CorrectionPair("perm", "PRN"),
+            CorrectionPair("p o", "PO"),
+            CorrectionPair("by mouth", "PO"),
+
+            // Documentation acronyms
+            CorrectionPair("soap note", "SOAP note"),
+            CorrectionPair("s o a p note", "SOAP note"),
+            CorrectionPair("HPI", "HPI"),
+            CorrectionPair("h p i", "HPI"),
+            CorrectionPair("history of present illness", "HPI"),
+            CorrectionPair("ROS", "ROS"),
+            CorrectionPair("review of systems", "ROS"),
+            CorrectionPair("DDX", "DDx"),
+            CorrectionPair("d d x", "DDx"),
+            CorrectionPair("differential diagnosis", "DDx"),
+            CorrectionPair("a and p", "A&P"),
+            CorrectionPair("assessment and plan", "A&P"),
+            CorrectionPair("CC", "CC"),
+            CorrectionPair("chief complaint", "chief complaint"),
+            CorrectionPair("EMR", "EMR"),
+            CorrectionPair("EHR", "EHR"),
+            CorrectionPair("e m r", "EMR"),
+            CorrectionPair("e h r", "EHR")
         ]
     )
 

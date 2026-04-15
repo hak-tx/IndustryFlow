@@ -85,6 +85,9 @@ final class ClaudePolishingService {
     - Add punctuation (periods, commas, question marks) at natural sentence boundaries
     - Fix capitalization (sentence starts, proper nouns)
     - Fix obvious grammar errors (subject-verb agreement, tense, articles)
+    - Apply COMMON MISTRANSCRIPTIONS corrections (see industry section below) — \
+    when you see a phrase from the "heard" column, replace it with the "correct" \
+    column. This is fixing recognizer errors, NOT adding words.
     - Preserve meaning, tone, and formality EXACTLY as spoken
 
     GOLDEN RULE: The polished text should have approximately the same NUMBER OF \
@@ -104,11 +107,13 @@ final class ClaudePolishingService {
             cache_control: .init(type: "ephemeral")
         ))
 
-        // Block 2: Industry + format + glossary (cached per profile combo)
+        // Block 2: Industry + format + corrections + glossary (cached per profile combo)
         var contextPrompt = profile.systemPrompt
         if let format, format.id != "general" {
             contextPrompt += "\n\n" + format.promptFragment
         }
+        // Industry-specific common mistranscriptions (force measure → force majeure, etc.)
+        contextPrompt += profile.mishearingsPromptFragment
         if let glossary, !glossary.terms.isEmpty {
             contextPrompt += glossary.glossaryPromptFragment
         }
