@@ -4,6 +4,10 @@ import Foundation
 /// independent of the industry. A lawyer writing an email is different from
 /// a lawyer writing a contract. A programmer writing a PR description is
 /// different from a programmer writing documentation.
+///
+/// IMPORTANT: All format prompts are wrappers around the user's actual content.
+/// They MUST preserve every sentence and idea. They only affect FORMATTING
+/// (paragraphs, bullets, greetings) — never the content itself.
 struct WritingFormat: Identifiable, Codable, Hashable {
     let id: String
     let name: String
@@ -14,7 +18,7 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         id: "general",
         name: "General",
         icon: "doc.text",
-        promptFragment: "Format as clean, professional prose."
+        promptFragment: "Format as clean prose paragraphs. Preserve every sentence and idea the speaker said."
     )
 
     static let email = WritingFormat(
@@ -22,9 +26,10 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Email",
         icon: "envelope",
         promptFragment: """
-        Format as a professional email. Include appropriate greeting and sign-off \
-        if the speaker indicated them. Use clear paragraphs. Keep the tone appropriate \
-        to the context — formal for external, conversational for internal.
+        Format as a professional email. Include greeting/sign-off ONLY if the speaker said them. \
+        Use clear paragraphs. Preserve EVERY sentence and idea from the dictation — \
+        do not condense or summarize. The email should contain all the same content the \
+        speaker said, just formatted as email paragraphs.
         """
     )
 
@@ -33,10 +38,9 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Social Media",
         icon: "bubble.left.and.bubble.right",
         promptFragment: """
-        Format as a social media post. Keep it concise and engaging. Use short \
-        paragraphs or line breaks for readability. Add relevant hashtags only if \
-        the speaker mentioned them. Match the platform tone — professional for \
-        LinkedIn, casual for Twitter/X.
+        Format as a social media post with line breaks for readability. \
+        Add hashtags ONLY if the speaker mentioned them. \
+        Preserve every idea the speaker said — do not summarize or shorten content.
         """
     )
 
@@ -45,9 +49,12 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Notes",
         icon: "note.text",
         promptFragment: """
-        Format as structured notes. Use bullet points or numbered lists where \
-        appropriate. Group related ideas together. Use headers if the content \
-        covers multiple topics. Keep it scannable and organized.
+        Format as readable notes. Use bullet points ONLY when the speaker explicitly \
+        listed items (e.g. "first... second... third..." or "one... two... three..."). \
+        For each enumerated item, create a SEPARATE bullet — never combine multiple \
+        items into one bullet. Preserve EVERY sentence and idea. Do not summarize. \
+        Introductory remarks like "OK", "So", "Let's see" should appear above the list \
+        as a regular paragraph, not be dropped.
         """
     )
 
@@ -56,9 +63,9 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Documentation",
         icon: "book",
         promptFragment: """
-        Format as technical or professional documentation. Use clear section \
-        structure. Be precise and unambiguous. Use consistent terminology. \
-        Include relevant details the speaker mentioned.
+        Format as technical or professional documentation with clear paragraphs. \
+        Use consistent terminology. Include EVERY detail the speaker mentioned — \
+        do not summarize or condense.
         """
     )
 
@@ -67,9 +74,9 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Chat / Message",
         icon: "message",
         promptFragment: """
-        Format as a chat message or instant message. Keep it natural and \
-        conversational. Use short sentences. No formal greeting or sign-off \
-        unless the speaker included them. Match casual professional tone.
+        Format as a chat message. Keep it natural and conversational. \
+        No formal greeting or sign-off unless the speaker included them. \
+        Preserve every sentence and idea — do not condense.
         """
     )
 
@@ -78,9 +85,9 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Formal Letter",
         icon: "doc.richtext",
         promptFragment: """
-        Format as a formal business letter. Include proper structure: date \
-        reference if mentioned, salutation, body paragraphs, closing, and \
-        signature line. Use formal tone throughout.
+        Format as a formal business letter with proper structure: date reference if \
+        mentioned, salutation, body paragraphs, closing. Preserve EVERY sentence and \
+        idea from the dictation in the body — do not summarize.
         """
     )
 
@@ -89,9 +96,9 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Report",
         icon: "chart.bar.doc.horizontal",
         promptFragment: """
-        Format as a professional report. Use structured sections with clear \
-        headings if the content warrants them. Present information logically. \
-        Use data-oriented language where the speaker provided numbers or metrics.
+        Format as a professional report with structured paragraphs. Use headings only \
+        if the speaker explicitly indicated them. Preserve EVERY data point, sentence, \
+        and idea — do not summarize or condense.
         """
     )
 
@@ -100,10 +107,9 @@ struct WritingFormat: Identifiable, Codable, Hashable {
         name: "Code / Technical",
         icon: "chevron.left.forwardslash.chevron.right",
         promptFragment: """
-        Format as technical writing for software. This could be a code comment, \
-        commit message, PR description, documentation, or technical spec. Use \
-        backticks for code references. Be precise and concise. Preserve any \
-        code-like content exactly as spoken.
+        Format as technical writing for software (code comment, commit message, PR \
+        description, etc.). Use backticks for code references. Preserve any code-like \
+        content exactly as spoken. Preserve every sentence — do not summarize.
         """
     )
 
