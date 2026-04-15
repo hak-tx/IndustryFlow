@@ -337,11 +337,18 @@ final class DictationViewModel {
         let charsToDelete = actuallyInDocument.count - common
         let suffix = String(longestTranscript.dropFirst(common))
 
-        // Safety check: never backspace more than half the document at once.
-        // This prevents catastrophic deletion if logic somehow goes wrong.
-        let maxSafeDelete = max(actuallyInDocument.count / 2, 20)
-        if charsToDelete > maxSafeDelete {
-            Logger.app.warning("Refusing to delete \(charsToDelete) chars (max \(maxSafeDelete)) — appending instead")
+        // Safety check uses NET data loss, not raw deletion count.
+        // If we delete 24 chars and type 24 new chars, no data is lost — safe.
+        // We only block if we'd be deleting significantly MORE than we type
+        // (which would be true catastrophic loss).
+        let netLoss = max(0, charsToDelete - suffix.count)
+        let lossThreshold = max(actuallyInDocument.count / 2, 50)
+
+        if netLoss > lossThreshold {
+            Logger.app.warning("""
+                Refusing replacement: would lose \(netLoss) chars (delete \(charsToDelete), \
+                type \(suffix.count)). Appending instead.
+                """)
             // Just append the new content with a separator
             let needsSpace = !actuallyInDocument.hasSuffix(" ") && !suffix.hasPrefix(" ")
             let toType = (needsSpace ? " " : "") + suffix
